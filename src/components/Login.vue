@@ -41,7 +41,7 @@ const form = ref({
   password: ''
 })
 const loading = ref(false)
-const API_URL = 'http://192.168.3.100:8081/api/auth'
+const API_URL = `${window.location.protocol}//${window.location.hostname}:58081/api/auth`
 
 const handleLogin = async () => {
   if (!form.value.username || !form.value.password) {

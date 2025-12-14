@@ -1,7 +1,7 @@
 <template>
   <div class="app-container">
     <Login v-if="!user" @login-success="handleLogin" />
-    <Dashboard v-else :user="user" @logout="handleLogout" />
+    <Dashboard v-else :user="user" @logout="handleLogout" @update-user="handleUserUpdate" />
   </div>
 </template>
 
@@ -20,6 +20,11 @@ onMounted(() => {
 })
 
 const handleLogin = (userData) => {
+  user.value = userData
+  localStorage.setItem('user', JSON.stringify(userData))
+}
+
+const handleUserUpdate = (userData) => {
   user.value = userData
   localStorage.setItem('user', JSON.stringify(userData))
 }

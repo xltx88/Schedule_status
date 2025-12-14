@@ -29,7 +29,12 @@ public class TaskController {
 
     @PostMapping("/switch")
     public ResponseEntity<?> switchTask(@RequestBody SwitchTaskRequest request) {
-        taskService.switchTask(request.getUserId(), request.getTaskId());
+        return ResponseEntity.ok(taskService.switchTask(request.getUserId(), request.getTaskId()));
+    }
+
+    @DeleteMapping("/{taskId}")
+    public ResponseEntity<?> deleteTask(@PathVariable Long taskId, @RequestParam Long userId) {
+        taskService.deleteTask(userId, taskId);
         return ResponseEntity.ok().build();
     }
 

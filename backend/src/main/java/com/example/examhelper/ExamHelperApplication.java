@@ -19,13 +19,46 @@ public class ExamHelperApplication {
     @Bean
     public CommandLineRunner dataLoader(TaskRepository taskRepository) {
         return args -> {
-            if (taskRepository.count() == 0) {
-                Task leaveTask = new Task();
+            Task leaveTask = taskRepository.findById(1L).orElse(null);
+            if (leaveTask == null) {
+                leaveTask = new Task();
+                leaveTask.setId(1L); // Force ID 1
                 leaveTask.setName("离岗");
                 leaveTask.setUserId(null); // System default
                 leaveTask.setIsActive(true);
+                leaveTask.setDeleted(false);
                 taskRepository.save(leaveTask);
-                System.out.println("Initialized '离岗' task with ID: " + leaveTask.getId());
+                System.out.println("Initialized '离岗' task with ID: 1");
+            } else {
+                // Force update to ensure correct state (especially userId = NULL)
+                boolean needsUpdate = false;
+                
+                // Ensure name is correct
+                if (!"离岗".equals(leaveTask.getName())) {
+                    leaveTask.setName("离岗");
+                    needsUpdate = true;
+                }
+                
+                // Ensure userId is NULL (Global task)
+                // Note: In DB, if it is not null, we must set it to null.
+                if (leaveTask.getUserId() != null) {
+                    System.out.println("Found '离岗' task with non-null userId: " + leaveTask.getUserId() + ". Fixing to NULL.");
+                    leaveTask.setUserId(null);
+                    needsUpdate = true;
+                }
+                
+                // Ensure not deleted
+                if (Boolean.TRUE.equals(leaveTask.getDeleted())) {
+                    leaveTask.setDeleted(false);
+                    needsUpdate = true;
+                }
+                
+                if (needsUpdate) {
+                    taskRepository.save(leaveTask);
+                    System.out.println("Updated '离岗' task to correct state: userId=NULL, deleted=false");
+                } else {
+                    System.out.println("'离岗' task is already in correct state.");
+                }
             }
         };
     }

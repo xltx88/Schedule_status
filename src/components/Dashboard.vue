@@ -21,6 +21,7 @@
                     当前状态: 
                     <el-tag v-if="currentTask" type="success" effect="dark">{{ currentTask.name }}</el-tag>
                     <el-tag v-else type="info">无任务</el-tag>
+                    <span v-if="currentTask" style="margin-left: 10px; font-weight: bold;">{{ currentTaskDuration }}</span>
                   </div>
                 </div>
               </template>
@@ -33,9 +34,26 @@
                       :type="currentTask?.id === task.id ? 'primary' : 'default'"
                       :plain="currentTask?.id !== task.id"
                       @click="switchTask(task)"
+                      style="flex-grow: 1; justify-content: flex-start;"
                     >
                       {{ task.name }}
                     </el-button>
+                    <el-popconfirm 
+                      v-if="task.id !== 1" 
+                      title="确定删除吗?" 
+                      @confirm="deleteTask(task)"
+                    >
+                      <template #reference>
+                        <el-button 
+                          type="danger" 
+                          :icon="Delete" 
+                          circle 
+                          size="small" 
+                          style="margin-left: 10px;" 
+                          @click.stop
+                        />
+                      </template>
+                    </el-popconfirm>
                   </div>
                 </el-scrollbar>
               </div>
@@ -103,10 +121,11 @@ export default {
 </script>
 
 <script setup>
-import { ref, onMounted, defineProps, defineEmits, nextTick } from 'vue'
+import { ref, onMounted, defineProps, defineEmits, nextTick, onUnmounted } from 'vue'
 import axios from 'axios'
 import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
+import { Delete } from '@element-plus/icons-vue'
 
 const props = defineProps({
   user: {
@@ -115,7 +134,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['logout'])
+const emit = defineEmits(['logout', 'update-user'])
 
 const tasks = ref([])
 const currentTask = ref(null)
@@ -125,13 +144,15 @@ const lineDateRange = ref([
   new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
   new Date().toISOString().split('T')[0]
 ])
+const currentTaskDuration = ref('00:00:00')
 
 const pieChartRef = ref(null)
 const lineChartRef = ref(null)
 let pieChart = null
 let lineChart = null
+let timer = null
 
-const API_URL = 'http://localhost:8081/api/tasks'
+const API_URL = `${window.location.protocol}//${window.location.hostname}:58081/api/tasks`
 
 onMounted(async () => {
   await fetchTasks()
@@ -148,7 +169,30 @@ onMounted(async () => {
 
   // Resize charts on window resize
   window.addEventListener('resize', handleResize)
+  
+  // Start timer
+  timer = setInterval(updateTimer, 1000)
 })
+
+onUnmounted(() => {
+  window.removeEventListener('resize', handleResize)
+  if (timer) clearInterval(timer)
+})
+
+const updateTimer = () => {
+  if (props.user.currentTaskId && props.user.currentTaskStartTime) {
+    const diff = Date.now() - props.user.currentTaskStartTime
+    if (diff >= 0) {
+      const seconds = Math.floor(diff / 1000)
+      const h = Math.floor(seconds / 3600)
+      const m = Math.floor((seconds % 3600) / 60)
+      const s = seconds % 60
+      currentTaskDuration.value = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
+    }
+  } else {
+    currentTaskDuration.value = '00:00:00'
+  }
+}
 
 const handleResize = () => {
   pieChart?.resize()
@@ -179,174 +223,161 @@ const addTask = async () => {
   }
 }
 
+const deleteTask = async (task) => {
+  try {
+    await axios.delete(`${API_URL}/${task.id}?userId=${props.user.id}`)
+    tasks.value = tasks.value.filter(t => t.id !== task.id)
+    if (currentTask.value?.id === task.id) {
+       currentTask.value = null
+       // Optionally force switch to leave or reload
+    }
+    ElMessage.success('任务已删除')
+  } catch (error) {
+     ElMessage.error('删除失败: ' + (error.response?.data?.message || error.message))
+  }
+}
+
 const switchTask = async (task) => {
   if (currentTask.value?.id === task.id) return
   
   try {
-    await axios.post(`${API_URL}/switch`, {
+    const res = await axios.post(`${API_URL}/switch`, {
       userId: props.user.id,
       taskId: task.id
     })
-    currentTask.value = task
     
-    // eslint-disable-next-line vue/no-mutating-props
-    props.user.currentTaskId = task.id
-    // eslint-disable-next-line vue/no-mutating-props
-    props.user.currentTaskStartTime = Date.now()
-    localStorage.setItem('user', JSON.stringify(props.user))
+    currentTask.value = task
+    emit('update-user', res.data)
     
     ElMessage.success(`已切换到: ${task.name}`)
-    // Refresh today's stats as the previous task session just ended
-    setTimeout(fetchPieData, 500) 
   } catch (error) {
     ElMessage.error('切换任务失败')
   }
 }
 
+const logout = () => {
+  emit('logout')
+}
+
+// Chart initialization and fetching logic...
 const initCharts = () => {
-  pieChart = echarts.init(pieChartRef.value)
-  lineChart = echarts.init(lineChartRef.value)
+  if (pieChartRef.value) {
+    pieChart = echarts.init(pieChartRef.value)
+  }
+  if (lineChartRef.value) {
+    lineChart = echarts.init(lineChartRef.value)
+  }
 }
 
 const fetchPieData = async () => {
-  if (!pieDate.value) return
   try {
     const res = await axios.get(`${API_URL}/stats/pie`, {
       params: { userId: props.user.id, date: pieDate.value }
     })
-    updatePieChart(res.data.data)
+    
+    const formatDurationMs = (ms) => {
+      const s = Math.floor(ms / 1000)
+      const h = Math.floor(s / 3600)
+      const m = Math.floor((s % 3600) / 60)
+      const sec = s % 60
+      if (h > 0) return `${h}小时${m}分`
+      return `${m}分${sec}秒`
+    }
+
+    const option = {
+       tooltip: { 
+         trigger: 'item',
+         formatter: function(params) {
+           const formatted = params.data.formatted || formatDurationMs(params.data.value)
+           return `${params.name}: ${formatted} (${params.percent}%)`
+         }
+       },
+       legend: { orient: 'vertical', left: 'left' },
+       series: [
+         {
+           name: '任务时长',
+           type: 'pie',
+           radius: '50%',
+           data: res.data.data,
+           label: {
+             formatter: function(params) {
+               const formatted = params.data.formatted || formatDurationMs(params.data.value)
+               return `${params.name}\n${formatted}`
+             }
+           },
+           emphasis: {
+             itemStyle: {
+               shadowBlur: 10,
+               shadowOffsetX: 0,
+               shadowColor: 'rgba(0, 0, 0, 0.5)'
+             }
+           }
+         }
+       ]
+     }
+    pieChart.setOption(option)
   } catch (error) {
     console.error(error)
   }
 }
 
-const updatePieChart = (data) => {
-  const option = {
-    tooltip: {
-      trigger: 'item',
-      formatter: '{b}: {c} ({d}%) <br/> {a}' 
-    },
-    legend: {
-      orient: 'vertical',
-      left: 'left'
-    },
-    series: [
-      {
-        name: '时长',
-        type: 'pie',
-        radius: '50%',
-        data: data,
-        emphasis: {
-          itemStyle: {
-            shadowBlur: 10,
-            shadowOffsetX: 0,
-            shadowColor: 'rgba(0, 0, 0, 0.5)'
-          }
-        },
-        label: {
-          formatter: function(params) {
-            return `${params.name}\n${params.data.formatted}`
-          }
-        }
-      }
-    ]
-  }
-  pieChart.setOption(option)
-}
-
 const fetchLineData = async () => {
-  if (!lineDateRange.value) return
   try {
     const res = await axios.get(`${API_URL}/stats/line`, {
       params: { 
         userId: props.user.id, 
-        startDate: lineDateRange.value[0], 
-        endDate: lineDateRange.value[1] 
+        startDate: lineDateRange.value[0],
+        endDate: lineDateRange.value[1]
       }
     })
-    updateLineChart(res.data)
+    
+    const option = {
+      tooltip: { trigger: 'axis' },
+      xAxis: { type: 'category', data: res.data.dates },
+      yAxis: { type: 'value', name: '时长(ms)', axisLabel: { formatter: (val) => (val / 3600000).toFixed(1) + 'h' } },
+      series: [
+        {
+          data: res.data.durations,
+          type: 'line',
+          smooth: true
+        }
+      ]
+    }
+    lineChart.setOption(option)
   } catch (error) {
     console.error(error)
   }
-}
-
-const updateLineChart = (data) => {
-  const option = {
-    tooltip: {
-      trigger: 'axis',
-      formatter: function (params) {
-        const val = params[0].value;
-        const hours = (val / 3600000).toFixed(2);
-        return `${params[0].name}<br/>时长: ${hours} 小时`;
-      }
-    },
-    xAxis: {
-      type: 'category',
-      data: data.dates
-    },
-    yAxis: {
-      type: 'value',
-      name: '时长 (小时)',
-      axisLabel: {
-        formatter: (value) => (value / 3600000).toFixed(1)
-      }
-    },
-    series: [
-      {
-        data: data.durations,
-        type: 'line',
-        smooth: true,
-        areaStyle: {}
-      }
-    ]
-  }
-  lineChart.setOption(option)
-}
-
-const logout = () => {
-  emit('logout')
 }
 </script>
 
 <style scoped>
 .dashboard-container {
-  padding: 20px;
+  height: 100vh;
 }
 .header-content {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background-color: #fff;
-  padding: 0 20px;
-  border-radius: 4px;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
-  margin-bottom: 20px;
-  height: 60px;
+  height: 100%;
 }
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
-.current-status {
-  font-size: 14px;
-  color: #606266;
-}
 .task-list {
   margin-bottom: 20px;
 }
 .task-item {
   margin-bottom: 10px;
+  display: flex;
+  align-items: center;
 }
 .task-btn {
   width: 100%;
   text-align: left;
-  justify-content: flex-start;
 }
 .add-task {
-  margin-top: 10px;
-}
-.box-card {
-  height: 100%;
+  margin-top: 20px;
 }
 </style>

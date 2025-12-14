@@ -40,11 +40,28 @@ public class TaskService {
         Task task = new Task();
         task.setName(name);
         task.setUserId(userId);
+        task.setDeleted(false);
         return taskRepository.save(task);
     }
 
+    public void deleteTask(Long userId, Long taskId) {
+        if (LEAVE_TASK_ID.equals(taskId)) {
+            throw new RuntimeException("Cannot delete Leave task");
+        }
+        
+        Task task = taskRepository.findById(taskId)
+                .orElseThrow(() -> new RuntimeException("Task not found"));
+                
+        if (!userId.equals(task.getUserId())) {
+            throw new RuntimeException("Unauthorized to delete this task");
+        }
+        
+        task.setDeleted(true);
+        taskRepository.save(task);
+    }
+
     @Transactional
-    public void switchTask(Long userId, Long newTaskId) {
+    public User switchTask(Long userId, Long newTaskId) {
         User user = userRepository.findById(userId).orElseThrow(() -> new RuntimeException("User not found"));
         long now = System.currentTimeMillis();
 
@@ -56,7 +73,7 @@ public class TaskService {
         // 2. Start new task
         user.setCurrentTaskId(newTaskId);
         user.setCurrentTaskStartTime(now);
-        userRepository.save(user);
+        return userRepository.save(user);
     }
 
     private void saveTimeRecord(User user, long endTime) {
@@ -94,6 +111,23 @@ public class TaskService {
                 log.info("Set user {} to Leave status", user.getUsername());
             }
             // If task is not empty (user started early), do nothing, keep counting.
+        }
+    }
+
+    // Check mandatory task selection every minute between 8:00 and 24:00
+    @Scheduled(cron = "0 * 8-23 * * ?")
+    @Transactional
+    public void checkMandatoryTask() {
+        List<User> users = userRepository.findAll();
+        long now = System.currentTimeMillis();
+        
+        for (User user : users) {
+             if (user.getCurrentTaskId() == null) {
+                 user.setCurrentTaskId(LEAVE_TASK_ID);
+                 user.setCurrentTaskStartTime(now);
+                 userRepository.save(user);
+                 log.info("Mandatory task enforcement: Set user {} to Leave status", user.getUsername());
+             }
         }
     }
 
@@ -149,6 +183,8 @@ public class TaskService {
             data.add(item);
         }
         
+        log.info("Pie Chart Data for user {} on {}: {}", userId, date, data);
+        
         Map<String, Object> result = new HashMap<>();
         result.put("data", data);
         return result;
@@ -185,9 +221,9 @@ public class TaskService {
         long hours = seconds / 3600;
         
         if (hours > 0) {
-            return String.format("%d小时%d分钟", hours, minutes);
+            return String.format("%d小时%d分", hours, minutes);
         } else {
-            return String.format("%d分钟", minutes);
+            return String.format("%d分%d秒", minutes, seconds % 60);
         }
     }
 }

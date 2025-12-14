@@ -19,4 +19,7 @@ public class Task {
 
     @Column(name = "is_active")
     private Boolean isActive = true;
+
+    @Column(nullable = false)
+    private Boolean deleted = false;
 }
