@@ -12,8 +12,8 @@
       <el-main>
         <el-row :gutter="20">
           <!-- Task Management Section -->
-          <el-col :span="8">
-            <el-card class="box-card">
+          <el-col :xs="24" :md="8">
+            <el-card class="box-card" style="margin-bottom: 20px;">
               <template #header>
                 <div class="card-header">
                   <span>任务列表</span>
@@ -69,7 +69,7 @@
           </el-col>
 
           <!-- Statistics Section -->
-          <el-col :span="16">
+          <el-col :xs="24" :md="16">
             <el-card class="box-card" style="margin-bottom: 20px;">
               <template #header>
                 <div class="card-header">
