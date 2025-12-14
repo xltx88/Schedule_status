@@ -31,6 +31,15 @@ public class AuthController {
         }
     }
 
+    @GetMapping("/user/{id}")
+    public ResponseEntity<?> getUser(@PathVariable Long id) {
+        User user = userService.getUserById(id);
+        if (user != null) {
+            return ResponseEntity.ok(user);
+        }
+        return ResponseEntity.notFound().build();
+    }
+
     @Data
     public static class LoginRequest {
         private String username;

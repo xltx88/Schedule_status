@@ -151,8 +151,10 @@ const lineChartRef = ref(null)
 let pieChart = null
 let lineChart = null
 let timer = null
+let syncTimer = null
 
 const API_URL = `${window.location.protocol}//${window.location.hostname}:58081/api/tasks`
+const AUTH_API_URL = `${window.location.protocol}//${window.location.hostname}:58081/api/auth`
 
 onMounted(async () => {
   await fetchTasks()
@@ -172,12 +174,49 @@ onMounted(async () => {
   
   // Start timer
   timer = setInterval(updateTimer, 1000)
+
+  // Start sync timer (every 10 seconds)
+  syncTimer = setInterval(syncUserStatus, 10000)
 })
 
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
   if (timer) clearInterval(timer)
+  if (syncTimer) clearInterval(syncTimer)
 })
+
+const syncUserStatus = async () => {
+  // Only sync if page is visible
+  if (document.hidden) return
+
+  try {
+    const res = await axios.get(`${AUTH_API_URL}/user/${props.user.id}`)
+    const remoteUser = res.data
+    
+    // Check if task changed
+    if (remoteUser.currentTaskId !== props.user.currentTaskId || 
+        remoteUser.currentTaskStartTime !== props.user.currentTaskStartTime) {
+      
+      emit('update-user', remoteUser)
+      
+      // Update local current task
+      const newTask = tasks.value.find(t => t.id === remoteUser.currentTaskId)
+      if (newTask) {
+        currentTask.value = newTask
+      } else {
+        // If task not found (e.g. new task added on another device), refresh tasks
+        await fetchTasks()
+        currentTask.value = tasks.value.find(t => t.id === remoteUser.currentTaskId) || null
+      }
+      
+      // Refresh charts as data might have changed
+      fetchPieData()
+      fetchLineData()
+    }
+  } catch (error) {
+    console.error('Sync failed', error)
+  }
+}
 
 const updateTimer = () => {
   if (props.user.currentTaskId && props.user.currentTaskStartTime) {
