@@ -44,7 +44,8 @@ public class TaskService {
         return taskRepository.save(task);
     }
 
-    public void deleteTask(Long userId, Long taskId) {
+    @Transactional
+    public User deleteTask(Long userId, Long taskId) {
         if (LEAVE_TASK_ID.equals(taskId)) {
             throw new RuntimeException("Cannot delete Leave task");
         }
@@ -55,9 +56,19 @@ public class TaskService {
         if (!userId.equals(task.getUserId())) {
             throw new RuntimeException("Unauthorized to delete this task");
         }
+
+        // Check if the task to be deleted is the current task
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        
+        if (taskId.equals(user.getCurrentTaskId())) {
+            // Switch to Leave task to settle time and reset status
+            user = switchTask(userId, LEAVE_TASK_ID);
+        }
         
         task.setDeleted(true);
         taskRepository.save(task);
+        return user;
     }
 
     @Transactional
@@ -114,8 +125,8 @@ public class TaskService {
         }
     }
 
-    // Check mandatory task selection every minute between 8:00 and 24:00
-    @Scheduled(cron = "0 * 8-23 * * ?")
+    // Check mandatory task selection every 10 seconds between 8:00 and 24:00
+    @Scheduled(cron = "*/10 * 8-23 * * ?")
     @Transactional
     public void checkMandatoryTask() {
         List<User> users = userRepository.findAll();
@@ -126,7 +137,8 @@ public class TaskService {
                  user.setCurrentTaskId(LEAVE_TASK_ID);
                  user.setCurrentTaskStartTime(now);
                  userRepository.save(user);
-                 log.info("Mandatory task enforcement: Set user {} to Leave status", user.getUsername());
+                 // Reduce log spam by checking if log level is debug or trace, or just remove info log for every 10s check
+                 // log.info("Mandatory task enforcement: Set user {} to Leave status", user.getUsername());
              }
         }
     }
@@ -183,6 +195,9 @@ public class TaskService {
             data.add(item);
         }
         
+        // Sort by value (duration) descending
+        data.sort((a, b) -> Long.compare((Long) b.get("value"), (Long) a.get("value")));
+        
         log.info("Pie Chart Data for user {} on {}: {}", userId, date, data);
         
         Map<String, Object> result = new HashMap<>();
@@ -193,8 +208,21 @@ public class TaskService {
     public Map<String, Object> getLineChartData(Long userId, String startDate, String endDate) {
         List<TimeRecord> records = timeRecordRepository.findByUserIdAndDateRange(userId, startDate, endDate);
         
-        // Group by Date -> Sum Duration
+        // Filter out records where task userId is null (System tasks like "Leave")
+        // But wait, the user said "user_id为null的不参与折线图时长统计".
+        // This implies we need to check the Task associated with the record.
+        // Since TimeRecord only stores taskId, we need to fetch tasks or look them up.
+        // Optimization: Fetch all system tasks (userId is null) IDs first.
+        
+        List<Task> allTasks = taskRepository.findAll();
+        Set<Long> systemTaskIds = allTasks.stream()
+                .filter(t -> t.getUserId() == null)
+                .map(Task::getId)
+                .collect(Collectors.toSet());
+
+        // Group by Date -> Sum Duration, filtering out system tasks
         Map<String, Long> durationByDate = records.stream()
+                .filter(record -> !systemTaskIds.contains(record.getTaskId()))
                 .collect(Collectors.groupingBy(TimeRecord::getRecordDate, Collectors.summingLong(TimeRecord::getDuration)));
 
         List<String> dates = new ArrayList<>();
@@ -211,7 +239,7 @@ public class TaskService {
 
         Map<String, Object> result = new HashMap<>();
         result.put("dates", dates);
-        result.put("durations", durations); // In ms, frontend can convert to hours
+        result.put("durations", durations); // In ms
         return result;
     }
 

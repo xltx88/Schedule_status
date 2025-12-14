@@ -39,7 +39,7 @@
                       {{ task.name }}
                     </el-button>
                     <el-popconfirm 
-                      v-if="task.id !== 1" 
+                      v-if="task.userId !== null" 
                       title="确定删除吗?" 
                       @confirm="deleteTask(task)"
                     >
@@ -225,12 +225,34 @@ const addTask = async () => {
 
 const deleteTask = async (task) => {
   try {
-    await axios.delete(`${API_URL}/${task.id}?userId=${props.user.id}`)
+    const res = await axios.delete(`${API_URL}/${task.id}?userId=${props.user.id}`)
     tasks.value = tasks.value.filter(t => t.id !== task.id)
-    if (currentTask.value?.id === task.id) {
+    
+    // If backend returns updated user (meaning current task was deleted and switched)
+    if (res.data && res.data.currentTaskId) {
+      emit('update-user', res.data)
+      // Find the new task (likely Leave task)
+      // We might need to re-fetch tasks if the new task is not in the list (e.g. Leave task might be hidden or default)
+      // Assuming Leave task (ID 1) is always in the list or we can find it.
+      // If Leave task is not in the list, we might need to fetch tasks again or handle it.
+      // But usually Leave task is ID 1.
+      
+      // Re-fetch tasks to be safe, or just find from existing if we know Leave is there.
+      // Let's try to find it first.
+      let newCurrent = tasks.value.find(t => t.id === res.data.currentTaskId)
+      
+      if (!newCurrent) {
+         // If not found (maybe it was filtered out or not loaded), fetch tasks again
+         await fetchTasks()
+         newCurrent = tasks.value.find(t => t.id === res.data.currentTaskId)
+      }
+      
+      currentTask.value = newCurrent || null
+    } else if (currentTask.value?.id === task.id) {
+       // Fallback if backend didn't return user but we deleted current task (shouldn't happen with new backend logic)
        currentTask.value = null
-       // Optionally force switch to leave or reload
     }
+    
     ElMessage.success('任务已删除')
   } catch (error) {
      ElMessage.error('删除失败: ' + (error.response?.data?.message || error.message))
@@ -269,21 +291,21 @@ const initCharts = () => {
   }
 }
 
+const formatDurationMs = (ms) => {
+  const s = Math.floor(ms / 1000)
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = s % 60
+  if (h > 0) return `${h}小时${m}分`
+  return `${m}分${sec}秒`
+}
+
 const fetchPieData = async () => {
   try {
     const res = await axios.get(`${API_URL}/stats/pie`, {
       params: { userId: props.user.id, date: pieDate.value }
     })
     
-    const formatDurationMs = (ms) => {
-      const s = Math.floor(ms / 1000)
-      const h = Math.floor(s / 3600)
-      const m = Math.floor((s % 3600) / 60)
-      const sec = s % 60
-      if (h > 0) return `${h}小时${m}分`
-      return `${m}分${sec}秒`
-    }
-
     const option = {
        tooltip: { 
          trigger: 'item',
@@ -298,6 +320,7 @@ const fetchPieData = async () => {
            name: '任务时长',
            type: 'pie',
            radius: '50%',
+           startAngle: 90, // Start from 12 o'clock
            data: res.data.data,
            label: {
              formatter: function(params) {
@@ -332,14 +355,37 @@ const fetchLineData = async () => {
     })
     
     const option = {
-      tooltip: { trigger: 'axis' },
+      tooltip: { 
+        trigger: 'axis',
+        formatter: function(params) {
+          // params is an array of series data for the axis point
+          let result = params[0].name + '<br/>';
+          params.forEach(item => {
+            const formatted = formatDurationMs(item.value);
+            result += `${item.marker} ${item.seriesName || '时长'}: ${formatted}<br/>`;
+          });
+          return result;
+        }
+      },
       xAxis: { type: 'category', data: res.data.dates },
-      yAxis: { type: 'value', name: '时长(ms)', axisLabel: { formatter: (val) => (val / 3600000).toFixed(1) + 'h' } },
+      yAxis: { 
+        type: 'value', 
+        name: '时长', 
+        axisLabel: { 
+          formatter: (val) => {
+            // Simplify Y-axis label to hours if large, or minutes
+            const h = val / 3600000;
+            if (h >= 1) return h.toFixed(1) + 'h';
+            return (val / 60000).toFixed(0) + 'm';
+          } 
+        } 
+      },
       series: [
         {
           data: res.data.durations,
           type: 'line',
-          smooth: true
+          smooth: true,
+          name: '时长'
         }
       ]
     }

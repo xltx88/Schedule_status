@@ -34,8 +34,7 @@ public class TaskController {
 
     @DeleteMapping("/{taskId}")
     public ResponseEntity<?> deleteTask(@PathVariable Long taskId, @RequestParam Long userId) {
-        taskService.deleteTask(userId, taskId);
-        return ResponseEntity.ok().build();
+        return ResponseEntity.ok(taskService.deleteTask(userId, taskId));
     }
 
     @GetMapping("/stats/pie")
