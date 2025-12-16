@@ -26,8 +26,16 @@ public class UserService {
         user.setUsername(username);
         user.setPassword(password);
         user.setCreatedAt(LocalDateTime.now());
+        user.setDailyGoal(8); // Default
         return userRepository.save(user);
     }
+
+    public User updateDailyGoal(Long userId, Integer goal) {
+        User user = userRepository.findById(userId).orElseThrow(() -> new RuntimeException("User not found"));
+        user.setDailyGoal(goal);
+        return userRepository.save(user);
+    }
+
 
     public User getUserById(Long id) {
         return userRepository.findById(id).orElse(null);

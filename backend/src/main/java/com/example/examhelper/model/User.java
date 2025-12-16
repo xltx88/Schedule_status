@@ -26,4 +26,7 @@ public class User {
 
     @Column(name = "current_task_start_time")
     private Long currentTaskStartTime;
+
+    @Column(name = "daily_goal")
+    private Integer dailyGoal = 8; // Default 8 hours
 }

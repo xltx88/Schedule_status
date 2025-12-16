@@ -55,6 +55,17 @@ public class TaskController {
         return ResponseEntity.ok(taskService.getLineChartData(userId, startDate, endDate));
     }
 
+    @GetMapping("/timeline")
+    public ResponseEntity<List<Map<String, Object>>> getTimeline(@RequestParam Long userId, @RequestParam(required = false) String date) {
+        if (date == null) date = LocalDate.now().toString();
+        return ResponseEntity.ok(taskService.getTimelineData(userId, date));
+    }
+
+    @GetMapping("/checkin")
+    public ResponseEntity<Map<String, Object>> getCheckInStatus(@RequestParam Long userId) {
+        return ResponseEntity.ok(taskService.getCheckInStatus(userId));
+    }
+
     @Data
     public static class AddTaskRequest {
         private String name;

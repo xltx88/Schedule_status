@@ -7,6 +7,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Map;
+
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
@@ -38,6 +40,11 @@ public class AuthController {
             return ResponseEntity.ok(user);
         }
         return ResponseEntity.notFound().build();
+    }
+
+    @PostMapping("/user/{id}/goal")
+    public ResponseEntity<?> updateGoal(@PathVariable Long id, @RequestBody Map<String, Integer> body) {
+        return ResponseEntity.ok(userService.updateDailyGoal(id, body.get("goal")));
     }
 
     @Data

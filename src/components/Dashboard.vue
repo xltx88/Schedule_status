@@ -1,11 +1,34 @@
 <template>
   <div class="dashboard-container">
     <el-container>
-      <el-header>
+      <el-header height="auto">
         <div class="header-content">
           <div class="user-info">
             <h2>你好, {{ user.username }}</h2>
           </div>
+          
+          <div class="checkin-status" v-if="checkInStatus">
+             <div class="status-circles">
+               <el-tooltip 
+                 v-for="(status, index) in checkInStatus.statusList" 
+                 :key="index"
+                 :content="status.date"
+                 placement="top"
+                 effect="light"
+               >
+                 <div class="status-item">
+                   <div class="circle" :class="{ 'success': status.metGoal, 'fail': !status.metGoal }">
+                     <span v-if="status.metGoal">✓</span>
+                     <span v-else>✕</span>
+                   </div>
+                 </div>
+               </el-tooltip>
+               <div class="status-item">
+                 <el-button circle :icon="Edit" @click="showGoalDialog = true" class="edit-btn"></el-button>
+               </div>
+             </div>
+          </div>
+
           <el-button type="danger" @click="logout">退出登录</el-button>
         </div>
       </el-header>
@@ -27,7 +50,7 @@
               </template>
               
               <div class="task-list">
-                <el-scrollbar height="400px">
+                <el-scrollbar max-height="440px">
                   <div v-for="task in tasks" :key="task.id" class="task-item">
                     <el-button 
                       class="task-btn" 
@@ -66,6 +89,16 @@
                 </el-input>
               </div>
             </el-card>
+
+            <!-- Timeline Chart (Moved to Left Column & Vertical) -->
+            <el-card class="box-card" style="margin-bottom: 20px;">
+              <template #header>
+                <div class="card-header">
+                  <span>今日时间轴</span>
+                </div>
+              </template>
+              <div ref="timelineChartRef" style="height: 400px;"></div>
+            </el-card>
           </el-col>
 
           <!-- Statistics Section -->
@@ -73,7 +106,7 @@
             <el-card class="box-card" style="margin-bottom: 20px;">
               <template #header>
                 <div class="card-header">
-                  <span>今日任务时长统计</span>
+                  <span>时长统计</span>
                   <el-date-picker
                     v-model="pieDate"
                     type="date"
@@ -111,6 +144,17 @@
         </el-row>
       </el-main>
     </el-container>
+
+    <el-dialog v-model="showGoalDialog" title="设置每日目标" width="30%">
+      <span>每日目标时长 (小时):</span>
+      <el-input-number v-model="newGoal" :min="1" :max="24" />
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="showGoalDialog = false">取消</el-button>
+          <el-button type="primary" @click="updateGoal">确定</el-button>
+        </span>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -121,11 +165,11 @@ export default {
 </script>
 
 <script setup>
-import { ref, onMounted, defineProps, defineEmits, nextTick, onUnmounted } from 'vue'
+import { ref, reactive, onMounted, defineProps, defineEmits, nextTick, onUnmounted } from 'vue'
 import axios from 'axios'
 import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
-import { Delete } from '@element-plus/icons-vue'
+import { Delete, Edit } from '@element-plus/icons-vue'
 
 const props = defineProps({
   user: {
@@ -148,8 +192,10 @@ const currentTaskDuration = ref('00:00:00')
 
 const pieChartRef = ref(null)
 const lineChartRef = ref(null)
+const timelineChartRef = ref(null)
 let pieChart = null
 let lineChart = null
+let timelineChart = null
 let timer = null
 let syncTimer = null
 
@@ -158,6 +204,7 @@ const AUTH_API_URL = `${window.location.protocol}//${window.location.hostname}:5
 
 onMounted(async () => {
   await fetchTasks()
+  await fetchCheckInStatus()
   
   // Set current task from user data if available
   if (props.user.currentTaskId) {
@@ -168,6 +215,7 @@ onMounted(async () => {
   initCharts()
   fetchPieData()
   fetchLineData()
+  fetchTimelineData()
 
   // Resize charts on window resize
   window.addEventListener('resize', handleResize)
@@ -212,6 +260,7 @@ const syncUserStatus = async () => {
       // Refresh charts as data might have changed
       fetchPieData()
       fetchLineData()
+      fetchTimelineData()
     }
   } catch (error) {
     console.error('Sync failed', error)
@@ -236,6 +285,7 @@ const updateTimer = () => {
 const handleResize = () => {
   pieChart?.resize()
   lineChart?.resize()
+  timelineChart?.resize()
 }
 
 const fetchTasks = async () => {
@@ -328,6 +378,9 @@ const initCharts = () => {
   if (lineChartRef.value) {
     lineChart = echarts.init(lineChartRef.value)
   }
+  if (timelineChartRef.value) {
+    timelineChart = echarts.init(timelineChartRef.value)
+  }
 }
 
 const formatDurationMs = (ms) => {
@@ -360,7 +413,10 @@ const fetchPieData = async () => {
            type: 'pie',
            radius: '50%',
            startAngle: 90, // Start from 12 o'clock
-           data: res.data.data,
+           data: res.data.data.map(item => ({
+             ...item,
+             itemStyle: { color: getColorForTask(item.name) }
+           })),
            label: {
              formatter: function(params) {
                const formatted = params.data.formatted || formatDurationMs(params.data.value)
@@ -433,6 +489,204 @@ const fetchLineData = async () => {
     console.error(error)
   }
 }
+
+const fetchTimelineData = async () => {
+  try {
+    const res = await axios.get(`${API_URL}/timeline`, {
+      params: { userId: props.user.id, date: pieDate.value }
+    })
+    
+    const data = res.data
+    if (!data || data.length === 0) {
+      timelineChart.clear()
+      return
+    }
+
+    const startTime = data[0].startTime
+    const endTime = data[data.length - 1].endTime
+    
+    const seriesData = data.map(item => {
+      return {
+        name: item.taskName,
+        value: [
+          0, // Category index
+          item.startTime,
+          item.endTime,
+          item.duration
+        ],
+        itemStyle: {
+          color: getColorForTask(item.taskName)
+        }
+      }
+    })
+
+    // Custom render function for vertical bars
+    const renderItem = (params, api) => {
+      var categoryIndex = api.value(0);
+      // Switch X and Y for vertical layout
+      // X is category (fixed width), Y is time
+      var start = api.coord([categoryIndex, api.value(1)]);
+      var end = api.coord([categoryIndex, api.value(2)]);
+      var width = api.size([1, 0])[0] * 0.6; // Bar width
+      
+      var rectShape = echarts.graphic.clipRectByRect({
+        x: start[0] - width / 2,
+        y: end[1], // In screen coordinates, Y increases downwards. end time is larger (lower on screen if not inverted)
+                   // But ECharts time axis usually puts earlier time at bottom or top depending on inverse.
+                   // Let's rely on coord.
+        width: width,
+        height: start[1] - end[1] // Height is difference in Y
+      }, {
+        x: params.coordSys.x,
+        y: params.coordSys.y,
+        width: params.coordSys.width,
+        height: params.coordSys.height
+      });
+      
+      // Re-calculate rect because clipRectByRect might be tricky with inverted axis or direction
+      // Simpler approach:
+      var x = start[0] - width / 2;
+      var y = end[1];
+      var h = start[1] - end[1];
+      
+      // Ensure height is positive
+      if (h < 0) {
+          y = start[1];
+          h = -h;
+      }
+
+      return {
+        type: 'rect',
+        transition: ['shape'],
+        shape: {
+            x: x,
+            y: y,
+            width: width,
+            height: h,
+            r: [10, 10, 10, 10] // Rounded corners for cylinder look
+        },
+        style: api.style()
+      };
+    }
+
+    const option = {
+      tooltip: {
+        formatter: function (params) {
+          return params.marker + params.name + '<br/>' + 
+                 new Date(params.value[1]).toLocaleTimeString() + ' - ' + 
+                 new Date(params.value[2]).toLocaleTimeString() + '<br/>' +
+                 '时长: ' + formatDurationMs(params.value[3]);
+        }
+      },
+      grid: {
+        left: '15%',
+        right: '10%',
+        top: '5%',
+        bottom: '5%'
+      },
+      yAxis: {
+        type: 'time',
+        min: startTime,
+        max: endTime,
+        inverse: true, // Time goes down
+        axisLabel: {
+          formatter: function(val) {
+            const date = new Date(val);
+            return `${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`;
+          }
+        }
+      },
+      xAxis: {
+        data: ['Timeline'],
+        show: false
+      },
+      series: [{
+        type: 'custom',
+        renderItem: renderItem,
+        itemStyle: {
+          opacity: 0.9,
+          shadowBlur: 5,
+          shadowColor: 'rgba(0,0,0,0.1)'
+        },
+        encode: {
+          x: 0,
+          y: [1, 2]
+        },
+        data: seriesData
+      }]
+    };
+    
+    timelineChart.setOption(option);
+  } catch (error) {
+    console.error(error)
+  }
+}
+
+// Macaron colors palette (15+ colors)
+const macaronColors = [
+  '#FFB7B2', // Macaron Red
+  '#FFDAC1', // Macaron Orange
+  '#E2F0CB', // Macaron Green
+  '#B5EAD7', // Macaron Mint
+  '#C7CEEA', // Macaron Purple
+  '#F8BBD0', // Pink
+  '#E1BEE7', // Purple
+  '#D1C4E9', // Deep Purple
+  '#C5CAE9', // Indigo
+  '#BBDEFB', // Blue
+  '#B3E5FC', // Light Blue
+  '#B2EBF2', // Cyan
+  '#B2DFDB', // Teal
+  '#C8E6C9', // Green
+  '#DCEDC8', // Light Green
+  '#F0F4C3', // Lime
+  '#FFF9C4', // Yellow
+  '#FFECB3', // Amber
+  '#FFE0B2', // Orange
+  '#FFCCBC'  // Deep Orange
+];
+
+const taskColorMap = reactive({})
+let nextColorIndex = 0
+
+const getColorForTask = (name) => {
+  if (taskColorMap[name]) {
+    return taskColorMap[name]
+  }
+  const color = macaronColors[nextColorIndex % macaronColors.length]
+  taskColorMap[name] = color
+  nextColorIndex++
+  return color
+}
+
+const checkInStatus = ref(null)
+const showGoalDialog = ref(false)
+const newGoal = ref(8)
+
+const fetchCheckInStatus = async () => {
+  try {
+    const res = await axios.get(`${API_URL}/checkin`, {
+      params: { userId: props.user.id }
+    })
+    checkInStatus.value = res.data
+    newGoal.value = res.data.dailyGoal
+  } catch (error) {
+    console.error(error)
+  }
+}
+
+const updateGoal = async () => {
+  try {
+    await axios.post(`${AUTH_API_URL}/user/${props.user.id}/goal`, {
+      goal: newGoal.value
+    })
+    showGoalDialog.value = false
+    fetchCheckInStatus()
+    ElMessage.success('目标已更新')
+  } catch (error) {
+    ElMessage.error('更新失败')
+  }
+}
 </script>
 
 <style scoped>
@@ -443,7 +697,63 @@ const fetchLineData = async () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  height: 100%;
+  min-height: 60px;
+  padding: 10px 0;
+}
+@media (max-width: 768px) {
+  .header-content {
+    flex-direction: column;
+    gap: 10px;
+  }
+  .checkin-status {
+    margin: 10px 0;
+    width: 100%;
+    justify-content: center;
+  }
+}
+.checkin-status {
+  display: flex;
+  align-items: center;
+  overflow-x: auto;
+  margin: 0 20px;
+}
+.status-circles {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap; /* Allow wrapping on small screens */
+  justify-content: center; /* Center items */
+}
+.status-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.circle {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: bold;
+  font-size: 16px;
+  cursor: pointer; /* Indicate interactivity */
+}
+.circle.success {
+  background-color: #67C23A;
+}
+.circle.fail {
+  background-color: #F56C6C;
+}
+.date-label {
+  font-size: 10px;
+  color: #909399;
+  margin-top: 2px;
+}
+.edit-btn {
+  width: 30px;
+  height: 30px;
 }
 .card-header {
   display: flex;

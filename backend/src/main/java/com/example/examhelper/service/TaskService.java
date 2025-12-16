@@ -243,6 +243,70 @@ public class TaskService {
         return result;
     }
 
+    public List<Map<String, Object>> getTimelineData(Long userId, String date) {
+        List<TimeRecord> records = timeRecordRepository.findByUserIdAndRecordDate(userId, date);
+        List<Task> allTasks = taskRepository.findAll();
+        Map<Long, String> taskNames = allTasks.stream().collect(Collectors.toMap(Task::getId, Task::getName));
+        Map<Long, Long> taskUserIds = allTasks.stream().collect(Collectors.toMap(Task::getId, t -> t.getUserId() == null ? 0L : t.getUserId()));
+
+        List<Map<String, Object>> timeline = new ArrayList<>();
+        
+        for (TimeRecord record : records) {
+            Map<String, Object> item = new HashMap<>();
+            item.put("taskName", taskNames.getOrDefault(record.getTaskId(), "Unknown"));
+            item.put("startTime", record.getStartTime());
+            item.put("endTime", record.getEndTime());
+            item.put("duration", record.getDuration());
+            item.put("isSystem", taskUserIds.get(record.getTaskId()) == 0L);
+            timeline.add(item);
+        }
+
+        // Add current task if it's today
+        if (LocalDate.now().format(DATE_FORMATTER).equals(date)) {
+            User user = userRepository.findById(userId).orElse(null);
+            if (user != null && user.getCurrentTaskId() != null && user.getCurrentTaskStartTime() != null) {
+                Map<String, Object> item = new HashMap<>();
+                item.put("taskName", taskNames.getOrDefault(user.getCurrentTaskId(), "Unknown"));
+                item.put("startTime", user.getCurrentTaskStartTime());
+                item.put("endTime", System.currentTimeMillis());
+                item.put("duration", System.currentTimeMillis() - user.getCurrentTaskStartTime());
+                item.put("isSystem", taskUserIds.get(user.getCurrentTaskId()) == 0L);
+                timeline.add(item);
+            }
+        }
+        
+        // Sort by start time
+        timeline.sort((a, b) -> Long.compare((Long)a.get("startTime"), (Long)b.get("startTime")));
+        
+        return timeline;
+    }
+
+    public Map<String, Object> getCheckInStatus(Long userId) {
+        User user = userRepository.findById(userId).orElseThrow(() -> new RuntimeException("User not found"));
+        String endDate = LocalDate.now().format(DATE_FORMATTER);
+        String startDate = LocalDate.now().minusDays(6).format(DATE_FORMATTER); // Last 7 days including today
+        
+        Map<String, Object> lineData = getLineChartData(userId, startDate, endDate);
+        List<String> dates = (List<String>) lineData.get("dates");
+        List<Long> durations = (List<Long>) lineData.get("durations");
+        
+        List<Map<String, Object>> statusList = new ArrayList<>();
+        long goalMs = user.getDailyGoal() * 3600000L;
+        
+        for (int i = 0; i < dates.size(); i++) {
+            Map<String, Object> status = new HashMap<>();
+            status.put("date", dates.get(i));
+            status.put("duration", durations.get(i));
+            status.put("metGoal", durations.get(i) >= goalMs);
+            statusList.add(status);
+        }
+        
+        Map<String, Object> result = new HashMap<>();
+        result.put("dailyGoal", user.getDailyGoal());
+        result.put("statusList", statusList);
+        return result;
+    }
+
     private String formatDuration(long millis) {
         long seconds = millis / 1000;
         long minutes = (seconds % 3600) / 60;
