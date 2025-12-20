@@ -6,9 +6,9 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, defineAsyncComponent } from 'vue'
 import Login from './components/Login.vue'
-import Dashboard from './components/Dashboard.vue'
+const Dashboard = defineAsyncComponent(() => import('./components/Dashboard.vue'))
 
 const user = ref(null)
 
@@ -16,6 +16,12 @@ onMounted(() => {
   const savedUser = localStorage.getItem('user')
   if (savedUser) {
     user.value = JSON.parse(savedUser)
+  } else {
+    // 如果用户未登录，延迟预加载 Dashboard 组件
+    // 利用用户输入账号密码的时间（假设3秒后）开始静默下载
+    setTimeout(() => {
+      import('./components/Dashboard.vue')
+    }, 3000)
   }
 })
 
