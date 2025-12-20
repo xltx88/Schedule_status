@@ -16,6 +16,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -33,7 +34,62 @@ public class TaskService {
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
     public List<Task> getTasks(Long userId) {
-        return taskRepository.findByUserIdOrUserIdIsNull(userId);
+        List<Task> tasks = taskRepository.findByUserIdOrUserIdIsNull(userId);
+        User user = userRepository.findById(userId).orElse(null);
+
+        if (user != null && user.getTaskOrder() != null && !user.getTaskOrder().isEmpty()) {
+            String[] orderStrs = user.getTaskOrder().split(",");
+            List<Long> orderList = new ArrayList<>();
+            for (String s : orderStrs) {
+                try {
+                    orderList.add(Long.parseLong(s));
+                } catch (NumberFormatException e) {
+                    // ignore
+                }
+            }
+
+            Map<Long, Integer> orderMap = new HashMap<>();
+            for (int i = 0; i < orderList.size(); i++) {
+                orderMap.put(orderList.get(i), i);
+            }
+
+            tasks.sort((t1, t2) -> {
+                Integer idx1 = orderMap.get(t1.getId());
+                Integer idx2 = orderMap.get(t2.getId());
+
+                if (idx1 != null && idx2 != null) {
+                    return idx1.compareTo(idx2);
+                } else if (idx1 != null) {
+                    return -1; // t1 comes first
+                } else if (idx2 != null) {
+                    return 1; // t2 comes first
+                } else {
+                    // Both not in order list, fallback to default
+                    return compareDefault(t1, t2);
+                }
+            });
+        } else {
+            tasks.sort(this::compareDefault);
+        }
+
+        return tasks;
+    }
+
+    private int compareDefault(Task t1, Task t2) {
+        boolean t1Global = t1.getUserId() == null;
+        boolean t2Global = t2.getUserId() == null;
+
+        if (t1Global && !t2Global) return -1;
+        if (!t1Global && t2Global) return 1;
+        return t1.getId().compareTo(t2.getId());
+    }
+
+    @Transactional
+    public void updateTaskOrder(Long userId, List<Long> taskIds) {
+        User user = userRepository.findById(userId).orElseThrow(() -> new RuntimeException("User not found"));
+        String orderStr = taskIds.stream().map(String::valueOf).collect(Collectors.joining(","));
+        user.setTaskOrder(orderStr);
+        userRepository.save(user);
     }
 
     public Task addTask(String name, Long userId) {
@@ -150,8 +206,6 @@ public class TaskService {
         log.info("Running Midnight Settlement");
         List<User> users = userRepository.findAll();
         long now = System.currentTimeMillis();
-        // The date for the record should be "Yesterday" because it's 00:00:00 of the new day
-        String yesterdayDate = LocalDate.now().minusDays(1).format(DATE_FORMATTER);
 
         for (User user : users) {
             if (user.getCurrentTaskId() != null && user.getCurrentTaskStartTime() != null) {
@@ -159,13 +213,19 @@ public class TaskService {
                 long startTime = user.getCurrentTaskStartTime();
                 long duration = now - startTime;
 
+                // Use the start time to determine the record date to avoid issues with cron firing slightly off midnight
+                String recordDate = Instant.ofEpochMilli(startTime)
+                        .atZone(ZoneId.systemDefault())
+                        .toLocalDate()
+                        .format(DATE_FORMATTER);
+
                 TimeRecord record = new TimeRecord();
                 record.setUserId(user.getId());
                 record.setTaskId(user.getCurrentTaskId());
                 record.setStartTime(startTime);
                 record.setEndTime(now);
                 record.setDuration(duration);
-                record.setRecordDate(yesterdayDate); // Explicitly set to yesterday
+                record.setRecordDate(recordDate);
                 record.setCreatedAt(LocalDateTime.now());
                 timeRecordRepository.save(record);
 

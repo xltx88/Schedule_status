@@ -51,33 +51,41 @@
               
               <div class="task-list">
                 <el-scrollbar max-height="440px">
-                  <div v-for="task in tasks" :key="task.id" class="task-item">
-                    <el-button 
-                      class="task-btn" 
-                      :type="currentTask?.id === task.id ? 'primary' : 'default'"
-                      :plain="currentTask?.id !== task.id"
-                      @click="switchTask(task)"
-                      style="flex-grow: 1; justify-content: flex-start;"
-                    >
-                      {{ task.name }}
-                    </el-button>
-                    <el-popconfirm 
-                      v-if="task.userId !== null" 
-                      title="确定删除吗?" 
-                      @confirm="deleteTask(task)"
-                    >
-                      <template #reference>
+                  <draggable 
+                    v-model="tasks" 
+                    item-key="id" 
+                    @end="onDragEnd"
+                  >
+                    <template #item="{ element: task }">
+                      <div class="task-item" style="cursor: move;">
                         <el-button 
-                          type="danger" 
-                          :icon="Delete" 
-                          circle 
-                          size="small" 
-                          style="margin-left: 10px;" 
-                          @click.stop
-                        />
-                      </template>
-                    </el-popconfirm>
-                  </div>
+                          class="task-btn" 
+                          :type="currentTask?.id === task.id ? 'primary' : 'default'"
+                          :plain="currentTask?.id !== task.id"
+                          @click="switchTask(task)"
+                          style="flex-grow: 1; justify-content: flex-start;"
+                        >
+                          {{ task.name }}
+                        </el-button>
+                        <el-popconfirm 
+                          v-if="task.userId !== null" 
+                          title="确定删除吗?" 
+                          @confirm="deleteTask(task)"
+                        >
+                          <template #reference>
+                            <el-button 
+                              type="danger" 
+                              :icon="Delete" 
+                              circle 
+                              size="small" 
+                              style="margin-left: 10px;" 
+                              @click.stop
+                            />
+                          </template>
+                        </el-popconfirm>
+                      </div>
+                    </template>
+                  </draggable>
                 </el-scrollbar>
               </div>
 
@@ -165,11 +173,12 @@ export default {
 </script>
 
 <script setup>
-import { ref, reactive, onMounted, defineProps, defineEmits, nextTick, onUnmounted } from 'vue'
+import { ref, reactive, onMounted, nextTick, onUnmounted } from 'vue'
 import axios from 'axios'
 import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
 import { Delete, Edit } from '@element-plus/icons-vue'
+import draggable from 'vuedraggable'
 
 const props = defineProps({
   user: {
@@ -361,8 +370,25 @@ const switchTask = async (task) => {
     emit('update-user', res.data)
     
     ElMessage.success(`已切换到: ${task.name}`)
+
+    // Refresh charts
+    fetchPieData()
+    fetchLineData()
+    fetchTimelineData()
   } catch (error) {
     ElMessage.error('切换任务失败')
+  }
+}
+
+const onDragEnd = async () => {
+  const taskIds = tasks.value.map(t => t.id)
+  try {
+    await axios.post(`${API_URL}/order`, {
+      userId: props.user.id,
+      taskIds: taskIds
+    })
+  } catch (error) {
+    ElMessage.error('保存排序失败')
   }
 }
 

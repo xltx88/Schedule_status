@@ -29,4 +29,7 @@ public class User {
 
     @Column(name = "daily_goal")
     private Integer dailyGoal = 8; // Default 8 hours
+
+    @Column(name = "task_order", columnDefinition = "TEXT")
+    private String taskOrder;
 }

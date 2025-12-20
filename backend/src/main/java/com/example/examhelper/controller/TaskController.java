@@ -66,6 +66,12 @@ public class TaskController {
         return ResponseEntity.ok(taskService.getCheckInStatus(userId));
     }
 
+    @PostMapping("/order")
+    public ResponseEntity<?> updateTaskOrder(@RequestBody UpdateOrderRequest request) {
+        taskService.updateTaskOrder(request.getUserId(), request.getTaskIds());
+        return ResponseEntity.ok().build();
+    }
+
     @Data
     public static class AddTaskRequest {
         private String name;
@@ -76,5 +82,11 @@ public class TaskController {
     public static class SwitchTaskRequest {
         private Long userId;
         private Long taskId;
+    }
+
+    @Data
+    public static class UpdateOrderRequest {
+        private Long userId;
+        private List<Long> taskIds;
     }
 }
