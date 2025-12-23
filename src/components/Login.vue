@@ -34,6 +34,7 @@ export default {
 import { ref, defineEmits } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
+import { API_BASE_URL } from '../config'
 
 const emit = defineEmits(['login-success'])
 const form = ref({
@@ -41,7 +42,7 @@ const form = ref({
   password: ''
 })
 const loading = ref(false)
-const API_URL = `${window.location.protocol}//${window.location.hostname}:58081/api/auth`
+const API_URL = `${API_BASE_URL}/auth`
 
 const handleLogin = async () => {
   if (!form.value.username || !form.value.password) {

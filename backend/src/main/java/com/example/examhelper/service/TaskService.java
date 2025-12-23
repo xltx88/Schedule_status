@@ -116,6 +116,15 @@ public class TaskService {
         // Check if the task to be deleted is the current task
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
+
+        // Remove task from sort order
+        if (user.getTaskOrder() != null && !user.getTaskOrder().isEmpty()) {
+            List<String> orderList = new ArrayList<>(Arrays.asList(user.getTaskOrder().split(",")));
+            if (orderList.remove(String.valueOf(taskId))) {
+                user.setTaskOrder(String.join(",", orderList));
+                userRepository.save(user);
+            }
+        }
         
         if (taskId.equals(user.getCurrentTaskId())) {
             // Switch to Leave task to settle time and reset status

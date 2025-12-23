@@ -33,7 +33,9 @@
         </div>
       </el-header>
       <el-main>
-        <el-row :gutter="20">
+        <el-tabs v-model="activeTab" class="dashboard-tabs">
+          <el-tab-pane label="工作台" name="dashboard">
+            <el-row :gutter="20">
           <!-- Task Management Section -->
           <el-col :xs="24" :md="8">
             <el-card class="box-card" style="margin-bottom: 20px;">
@@ -55,15 +57,22 @@
                     v-model="tasks" 
                     item-key="id" 
                     @end="onDragEnd"
+                    class="task-list-container"
+                    :delay="200"
+                    :delay-on-touch-only="true"
                   >
                     <template #item="{ element: task }">
-                      <div class="task-item" style="cursor: move;">
+                      <div 
+                        class="task-item" 
+                        :class="{ 'global-task': task.userId === null, 'user-task': task.userId !== null }"
+                        style="cursor: move;"
+                      >
                         <el-button 
                           class="task-btn" 
                           :type="currentTask?.id === task.id ? 'primary' : 'default'"
                           :plain="currentTask?.id !== task.id"
                           @click="switchTask(task)"
-                          style="flex-grow: 1; justify-content: flex-start;"
+                          style="flex-grow: 1; justify-content: flex-start; overflow: hidden; text-overflow: ellipsis;"
                         >
                           {{ task.name }}
                         </el-button>
@@ -78,7 +87,7 @@
                               :icon="Delete" 
                               circle 
                               size="small" 
-                              style="margin-left: 10px;" 
+                              style="margin-left: 5px; flex-shrink: 0;" 
                               @click.stop
                             />
                           </template>
@@ -149,7 +158,12 @@
               <div ref="lineChartRef" style="height: 350px;"></div>
             </el-card>
           </el-col>
-        </el-row>
+            </el-row>
+          </el-tab-pane>
+          <el-tab-pane label="高频成语" name="idioms" lazy>
+            <IdiomList />
+          </el-tab-pane>
+        </el-tabs>
       </el-main>
     </el-container>
 
@@ -173,12 +187,14 @@ export default {
 </script>
 
 <script setup>
-import { ref, reactive, onMounted, nextTick, onUnmounted } from 'vue'
+import { ref, reactive, onMounted, nextTick, onUnmounted, watch } from 'vue'
 import axios from 'axios'
 import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
 import { Delete, Edit } from '@element-plus/icons-vue'
 import draggable from 'vuedraggable'
+import IdiomList from './IdiomList.vue'
+import { API_BASE_URL } from '../config'
 
 const props = defineProps({
   user: {
@@ -188,6 +204,12 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['logout', 'update-user'])
+
+const activeTab = ref(localStorage.getItem('activeTab') || 'dashboard')
+
+watch(activeTab, (newVal) => {
+  localStorage.setItem('activeTab', newVal)
+})
 
 const tasks = ref([])
 const currentTask = ref(null)
@@ -208,8 +230,8 @@ let timelineChart = null
 let timer = null
 let syncTimer = null
 
-const API_URL = `${window.location.protocol}//${window.location.hostname}:58081/api/tasks`
-const AUTH_API_URL = `${window.location.protocol}//${window.location.hostname}:58081/api/auth`
+const API_URL = `${API_BASE_URL}/tasks`
+const AUTH_API_URL = `${API_BASE_URL}/auth`
 
 onMounted(async () => {
   await fetchTasks()
@@ -234,6 +256,9 @@ onMounted(async () => {
 
   // Start sync timer (every 10 seconds)
   syncTimer = setInterval(syncUserStatus, 10000)
+
+  // Immediate sync to get latest status
+  await syncUserStatus()
 })
 
 onUnmounted(() => {
@@ -789,10 +814,22 @@ const updateGoal = async () => {
 .task-list {
   margin-bottom: 20px;
 }
+.task-list-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
 .task-item {
-  margin-bottom: 10px;
+  margin-bottom: 0; /* Gap handles spacing */
   display: flex;
   align-items: center;
+  box-sizing: border-box;
+}
+.global-task {
+  width: 100%;
+}
+.user-task {
+  width: calc(50% - 5px);
 }
 .task-btn {
   width: 100%;
