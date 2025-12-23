@@ -163,6 +163,9 @@
           <el-tab-pane label="高频成语" name="idioms" lazy>
             <IdiomList />
           </el-tab-pane>
+          <el-tab-pane label="资料分析" name="calculator" lazy>
+            <Calculator />
+          </el-tab-pane>
         </el-tabs>
       </el-main>
     </el-container>
@@ -194,6 +197,7 @@ import { ElMessage } from 'element-plus'
 import { Delete, Edit } from '@element-plus/icons-vue'
 import draggable from 'vuedraggable'
 import IdiomList from './IdiomList.vue'
+import Calculator from './Calculator.vue'
 import { API_BASE_URL } from '../config'
 
 const props = defineProps({
@@ -256,9 +260,6 @@ onMounted(async () => {
 
   // Start sync timer (every 10 seconds)
   syncTimer = setInterval(syncUserStatus, 10000)
-
-  // Immediate sync to get latest status
-  await syncUserStatus()
 })
 
 onUnmounted(() => {
