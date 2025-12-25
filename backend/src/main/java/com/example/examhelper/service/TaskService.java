@@ -386,6 +386,60 @@ public class TaskService {
         taskRepository.save(task);
     }
 
+    public Map<String, Object> getRankingStats(Long userId) {
+        Map<String, Object> result = new HashMap<>();
+        
+        // 1. Today's Ranking
+        String today = LocalDate.now().format(DATE_FORMATTER);
+        List<Object[]> todayStats = timeRecordRepository.findUserDurationsByDate(today);
+        long totalUsers = userRepository.count();
+        
+        int myRank = -1;
+        for (int i = 0; i < todayStats.size(); i++) {
+            Long uid = ((Number) todayStats.get(i)[0]).longValue();
+            if (uid.equals(userId)) {
+                myRank = i + 1;
+                break;
+            }
+        }
+        
+        if (myRank != -1) {
+            result.put("todayRank", myRank + "/" + totalUsers);
+        } else {
+            // If not in list (no duration today), rank is effectively after the last ranked user or just "-"
+            // Let's show "-" for now or maybe "N/A"
+            result.put("todayRank", "-/" + totalUsers);
+        }
+
+        // 2. Cumulative Duration
+        Long totalDuration = timeRecordRepository.getTotalDurationByUserId(userId);
+        if (totalDuration == null) totalDuration = 0L;
+        result.put("totalDuration", formatDuration(totalDuration));
+
+        // 3. Yesterday's Top 3
+        String yesterday = LocalDate.now().minusDays(1).format(DATE_FORMATTER);
+        List<Object[]> yesterdayStats = timeRecordRepository.findUserDurationsByDate(yesterday);
+        
+        List<Map<String, Object>> top3 = new ArrayList<>();
+        int limit = Math.min(yesterdayStats.size(), 3);
+        
+        for (int i = 0; i < limit; i++) {
+            Long uid = ((Number) yesterdayStats.get(i)[0]).longValue();
+            // Fetch username
+            // Optimization: Could cache users or fetch all needed users in one query
+            User u = userRepository.findById(uid).orElse(null);
+            String name = (u != null) ? u.getUsername() : "Unknown";
+            
+            Map<String, Object> entry = new HashMap<>();
+            entry.put("rank", i + 1);
+            entry.put("name", name);
+            top3.add(entry);
+        }
+        result.put("yesterdayTop3", top3);
+        
+        return result;
+    }
+
     private String formatDuration(long millis) {
         long seconds = millis / 1000;
         long minutes = (seconds % 3600) / 60;

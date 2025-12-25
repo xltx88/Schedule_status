@@ -165,6 +165,27 @@
                 </div>
               </template>
               <div ref="lineChartRef" style="height: 350px;"></div>
+              
+              <div class="ranking-stats-container" v-if="rankingStats">
+                <div class="stat-item">
+                  <div class="stat-title">今日时长排名</div>
+                  <div class="stat-value">{{ rankingStats.todayRank }}</div>
+                </div>
+                <div class="stat-item">
+                  <div class="stat-title">累计时长</div>
+                  <div class="stat-value">{{ rankingStats.totalDuration }}</div>
+                </div>
+                <div class="stat-item">
+                  <div class="stat-title">昨日排名</div>
+                  <div class="stat-list">
+                    <div v-for="user in rankingStats.yesterdayTop3" :key="user.rank">
+                      <span class="rank-num">{{ user.rank }}、</span>
+                      <span class="rank-name">{{ user.name }}</span>
+                    </div>
+                    <div v-if="!rankingStats.yesterdayTop3 || rankingStats.yesterdayTop3.length === 0" class="no-data">暂无数据</div>
+                  </div>
+                </div>
+              </div>
             </el-card>
           </el-col>
             </el-row>
@@ -273,6 +294,7 @@ onMounted(async () => {
   fetchPieData()
   fetchLineData()
   fetchTimelineData()
+  fetchRankings()
 
   // Resize charts on window resize
   window.addEventListener('resize', handleResize)
@@ -714,6 +736,19 @@ const fetchTimelineData = async () => {
   }
 }
 
+const rankingStats = ref(null)
+
+const fetchRankings = async () => {
+  try {
+    const res = await axios.get(`${API_URL}/stats/rankings`, {
+      params: { userId: props.user.id }
+    })
+    rankingStats.value = res.data
+  } catch (error) {
+    console.error('Failed to fetch rankings', error)
+  }
+}
+
 // Macaron colors palette (15+ colors)
 const macaronColors = [
   '#FFB7B2', // Macaron Red
@@ -909,5 +944,40 @@ const updateGoal = async () => {
 }
 .add-task {
   margin-top: 20px;
+}
+.ranking-stats-container {
+  display: flex;
+  justify-content: space-around;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid #ebeef5;
+}
+.stat-item {
+  text-align: center;
+}
+.stat-title {
+  font-size: 14px;
+  color: #909399;
+  margin-bottom: 10px;
+}
+.stat-value {
+  font-size: 24px;
+  font-weight: bold;
+  color: #303133;
+}
+.stat-list {
+  text-align: left;
+  font-size: 16px;
+  font-weight: bold;
+  color: #303133;
+}
+.rank-num {
+  color: #909399;
+  margin-right: 5px;
+}
+.no-data {
+  font-size: 14px;
+  color: #C0C4CC;
+  font-weight: normal;
 }
 </style>

@@ -55,6 +55,11 @@ public class TaskController {
         return ResponseEntity.ok(taskService.getLineChartData(userId, startDate, endDate));
     }
 
+    @GetMapping("/stats/rankings")
+    public ResponseEntity<Map<String, Object>> getRankings(@RequestParam Long userId) {
+        return ResponseEntity.ok(taskService.getRankingStats(userId));
+    }
+
     @GetMapping("/timeline")
     public ResponseEntity<List<Map<String, Object>>> getTimeline(@RequestParam Long userId, @RequestParam(required = false) String date) {
         if (date == null) date = LocalDate.now().toString();
