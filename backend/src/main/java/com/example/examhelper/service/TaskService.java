@@ -97,6 +97,7 @@ public class TaskService {
         task.setName(name);
         task.setUserId(userId);
         task.setDeleted(false);
+        task.setRecordsTag(true); // Default to record
         return taskRepository.save(task);
     }
 
@@ -277,21 +278,24 @@ public class TaskService {
     public Map<String, Object> getLineChartData(Long userId, String startDate, String endDate) {
         List<TimeRecord> records = timeRecordRepository.findByUserIdAndDateRange(userId, startDate, endDate);
         
-        // Filter out records where task userId is null (System tasks like "Leave")
-        // But wait, the user said "user_id为null的不参与折线图时长统计".
-        // This implies we need to check the Task associated with the record.
-        // Since TimeRecord only stores taskId, we need to fetch tasks or look them up.
-        // Optimization: Fetch all system tasks (userId is null) IDs first.
-        
         List<Task> allTasks = taskRepository.findAll();
-        Set<Long> systemTaskIds = allTasks.stream()
-                .filter(t -> t.getUserId() == null)
+        
+        // Filter tasks based on recordsTag
+        // If recordsTag is present: true -> include, false -> exclude
+        // If recordsTag is null: fallback to old logic (exclude system tasks where userId is null)
+        Set<Long> excludedTaskIds = allTasks.stream()
+                .filter(t -> {
+                    if (t.getRecordsTag() != null) {
+                        return !t.getRecordsTag(); // Exclude if false (0)
+                    }
+                    return t.getUserId() == null; // Fallback: Exclude if system task
+                })
                 .map(Task::getId)
                 .collect(Collectors.toSet());
 
-        // Group by Date -> Sum Duration, filtering out system tasks
+        // Group by Date -> Sum Duration, filtering out excluded tasks
         Map<String, Long> durationByDate = records.stream()
-                .filter(record -> !systemTaskIds.contains(record.getTaskId()))
+                .filter(record -> !excludedTaskIds.contains(record.getTaskId()))
                 .collect(Collectors.groupingBy(TimeRecord::getRecordDate, Collectors.summingLong(TimeRecord::getDuration)));
 
         List<String> dates = new ArrayList<>();
@@ -374,6 +378,12 @@ public class TaskService {
         result.put("dailyGoal", user.getDailyGoal());
         result.put("statusList", statusList);
         return result;
+    }
+
+    public void updateTaskRecordsTag(Long taskId, Boolean recordsTag) {
+        Task task = taskRepository.findById(taskId).orElseThrow(() -> new RuntimeException("Task not found"));
+        task.setRecordsTag(recordsTag);
+        taskRepository.save(task);
     }
 
     private String formatDuration(long millis) {

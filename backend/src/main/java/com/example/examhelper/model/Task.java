@@ -22,4 +22,7 @@ public class Task {
 
     @Column(nullable = false)
     private Boolean deleted = false;
+
+    @Column(name = "records_tag")
+    private Boolean recordsTag;
 }

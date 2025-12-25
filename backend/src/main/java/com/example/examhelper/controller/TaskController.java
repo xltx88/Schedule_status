@@ -72,6 +72,12 @@ public class TaskController {
         return ResponseEntity.ok().build();
     }
 
+    @PutMapping("/{taskId}/records-tag")
+    public ResponseEntity<?> updateTaskRecordsTag(@PathVariable Long taskId, @RequestBody UpdateRecordsTagRequest request) {
+        taskService.updateTaskRecordsTag(taskId, request.getRecordsTag());
+        return ResponseEntity.ok().build();
+    }
+
     @Data
     public static class AddTaskRequest {
         private String name;
@@ -88,5 +94,10 @@ public class TaskController {
     public static class UpdateOrderRequest {
         private Long userId;
         private List<Long> taskIds;
+    }
+
+    @Data
+    public static class UpdateRecordsTagRequest {
+        private Boolean recordsTag;
     }
 }

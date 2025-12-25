@@ -76,6 +76,15 @@
                         >
                           {{ task.name }}
                         </el-button>
+                        <el-button 
+                          v-if="task.userId !== null"
+                          type="primary" 
+                          :icon="Edit" 
+                          circle 
+                          size="small" 
+                          style="margin-left: 5px; flex-shrink: 0;" 
+                          @click.stop="openRecordDialog(task)"
+                        />
                         <el-popconfirm 
                           v-if="task.userId !== null" 
                           title="确定删除吗?" 
@@ -174,6 +183,23 @@
         <span class="dialog-footer">
           <el-button @click="showGoalDialog = false">取消</el-button>
           <el-button type="primary" @click="updateGoal">确定</el-button>
+        </span>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="showRecordDialog" title="任务设置" width="30%">
+      <div style="display: flex; align-items: center; justify-content: space-between;">
+        <span>是否将该任务记录到时长趋势？</span>
+        <el-switch
+          v-model="tempRecordTagValue"
+          active-color="#13ce66"
+          inactive-color="#909399"
+        />
+      </div>
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="showRecordDialog = false">取消</el-button>
+          <el-button type="primary" @click="saveRecordTag">确定</el-button>
         </span>
       </template>
     </el-dialog>
@@ -449,20 +475,35 @@ const fetchPieData = async () => {
       params: { userId: props.user.id, date: pieDate.value }
     })
     
+    const isMobile = window.innerWidth <= 768
+    const legendOption = isMobile ? {
+      bottom: 0,
+      left: 'center',
+      orient: 'horizontal'
+    } : {
+      orient: 'vertical',
+      left: 'left'
+    }
+
+    // Adjust chart position on mobile to make room for multi-line legend at bottom
+    const seriesCenter = isMobile ? ['50%', '35%'] : ['50%', '50%']
+
     const option = {
        tooltip: { 
          trigger: 'item',
+         confine: true,
          formatter: function(params) {
            const formatted = params.data.formatted || formatDurationMs(params.data.value)
            return `${params.name}: ${formatted} (${params.percent}%)`
          }
        },
-       legend: { orient: 'vertical', left: 'left' },
+       legend: legendOption,
        series: [
          {
            name: '任务时长',
            type: 'pie',
            radius: '50%',
+           center: seriesCenter,
            startAngle: 90, // Start from 12 o'clock
            data: res.data.data.map(item => ({
              ...item,
@@ -713,6 +754,37 @@ const getColorForTask = (name) => {
 const checkInStatus = ref(null)
 const showGoalDialog = ref(false)
 const newGoal = ref(8)
+
+const showRecordDialog = ref(false)
+const currentEditingTask = ref(null)
+const tempRecordTagValue = ref(true)
+
+const openRecordDialog = (task) => {
+  currentEditingTask.value = task
+  // If recordsTag is undefined/null, default to true (1) as per backend logic
+  tempRecordTagValue.value = task.recordsTag !== false 
+  showRecordDialog.value = true
+}
+
+const saveRecordTag = async () => {
+  if (!currentEditingTask.value) return
+  try {
+    await axios.put(`${API_URL}/${currentEditingTask.value.id}/records-tag`, {
+      recordsTag: tempRecordTagValue.value
+    })
+    // Update local state
+    const task = tasks.value.find(t => t.id === currentEditingTask.value.id)
+    if (task) {
+      task.recordsTag = tempRecordTagValue.value
+    }
+    showRecordDialog.value = false
+    ElMessage.success('设置已保存')
+    // Refresh charts if needed
+    fetchLineData()
+  } catch (error) {
+    ElMessage.error('保存失败')
+  }
+}
 
 const fetchCheckInStatus = async () => {
   try {
