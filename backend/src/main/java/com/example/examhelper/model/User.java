@@ -32,4 +32,10 @@ public class User {
 
     @Column(name = "task_order", columnDefinition = "TEXT")
     private String taskOrder;
+
+    @Column(name = "role")
+    private String role = "USER"; // USER, ADMIN
+
+    @Column(name = "can_edit_time")
+    private Boolean canEditTime = false;
 }

@@ -46,6 +46,15 @@
                     当前状态: 
                     <el-tag v-if="currentTask" type="success" effect="dark">{{ currentTask.name }}</el-tag>
                     <el-tag v-else type="info">无任务</el-tag>
+                    <el-button 
+                      v-if="showSettleButton" 
+                      type="warning" 
+                      size="small" 
+                      style="margin-left: 10px;"
+                      @click="settleDailyTask"
+                    >
+                      结束今日任务
+                    </el-button>
                     <span v-if="currentTask" style="margin-left: 10px; font-weight: bold;">{{ currentTaskDuration }}</span>
                   </div>
                 </div>
@@ -124,6 +133,20 @@
                 </div>
               </template>
               <div ref="timelineChartRef" style="height: 400px;"></div>
+              <div class="timeline-stats" v-if="timelineStats">
+                <div class="stat-item">
+                  <span class="label">上午 (13:00前)</span>
+                  <span class="value">{{ formatDurationMs(timelineStats.morning) }}</span>
+                </div>
+                <div class="stat-item">
+                  <span class="label">下午 (13:00-18:00)</span>
+                  <span class="value">{{ formatDurationMs(timelineStats.afternoon) }}</span>
+                </div>
+                <div class="stat-item">
+                  <span class="label">晚上 (18:00后)</span>
+                  <span class="value">{{ formatDurationMs(timelineStats.evening) }}</span>
+                </div>
+              </div>
             </el-card>
           </el-col>
 
@@ -141,6 +164,8 @@
                     value-format="YYYY-MM-DD"
                     @change="fetchPieData"
                     :clearable="false"
+                    :editable="false"
+                    class="compact-date-picker"
                   />
                 </div>
               </template>
@@ -149,26 +174,40 @@
 
             <el-card class="box-card">
               <template #header>
-                <div class="card-header">
+                <div class="card-header trend-header">
                   <span>时长趋势</span>
-                  <el-date-picker
-                    v-model="lineDateRange"
-                    type="daterange"
-                    range-separator="至"
-                    start-placeholder="开始日期"
-                    end-placeholder="结束日期"
-                    format="YYYY-MM-DD"
-                    value-format="YYYY-MM-DD"
-                    @change="fetchLineData"
-                    :clearable="false"
-                  />
+                  <div class="date-range-container">
+                    <el-date-picker
+                      v-model="lineDateRange[0]"
+                      type="date"
+                      placeholder="开始"
+                      format="YYYY-MM-DD"
+                      value-format="YYYY-MM-DD"
+                      @change="handleDateRangeChange"
+                      :clearable="false"
+                      :editable="false"
+                      class="compact-date-picker"
+                    />
+                    <span class="range-separator">至</span>
+                    <el-date-picker
+                      v-model="lineDateRange[1]"
+                      type="date"
+                      placeholder="结束"
+                      format="YYYY-MM-DD"
+                      value-format="YYYY-MM-DD"
+                      @change="handleDateRangeChange"
+                      :clearable="false"
+                      :editable="false"
+                      class="compact-date-picker"
+                    />
+                  </div>
                 </div>
               </template>
               <div ref="lineChartRef" style="height: 350px;"></div>
               
               <div class="ranking-stats-container" v-if="rankingStats">
                 <div class="stat-item">
-                  <div class="stat-title">今日时长排名</div>
+                  <div class="stat-title">今日排名</div>
                   <div class="stat-value">{{ rankingStats.todayRank }}</div>
                 </div>
                 <div class="stat-item">
@@ -179,7 +218,7 @@
                   <div class="stat-title">昨日排名</div>
                   <div class="stat-list">
                     <div v-for="user in rankingStats.yesterdayTop3" :key="user.rank">
-                      <span class="rank-num">{{ user.rank }}、</span>
+                      <span class="rank-num">{{ user.rank }}.</span>
                       <span class="rank-name">{{ user.name }}</span>
                     </div>
                     <div v-if="!rankingStats.yesterdayTop3 || rankingStats.yesterdayTop3.length === 0" class="no-data">暂无数据</div>
@@ -197,9 +236,9 @@
       </el-main>
     </el-container>
 
-    <el-dialog v-model="showGoalDialog" title="设置每日目标" width="30%">
+    <el-dialog v-model="showGoalDialog" title="设置每日目标" :width="dialogWidth">
       <span>每日目标时长 (小时):</span>
-      <el-input-number v-model="newGoal" :min="1" :max="24" />
+      <el-input-number v-model="newGoal" :min="1" :max="24" style="width: 100%; margin-top: 10px;" />
       <template #footer>
         <span class="dialog-footer">
           <el-button @click="showGoalDialog = false">取消</el-button>
@@ -208,7 +247,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="showRecordDialog" title="任务设置" width="30%">
+    <el-dialog v-model="showRecordDialog" title="任务设置" :width="dialogWidth">
       <div style="display: flex; align-items: center; justify-content: space-between;">
         <span>是否将该任务记录到时长趋势？</span>
         <el-switch
@@ -221,6 +260,54 @@
         <span class="dialog-footer">
           <el-button @click="showRecordDialog = false">取消</el-button>
           <el-button type="primary" @click="saveRecordTag">确定</el-button>
+        </span>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="showTimeEditDialog" title="修改时间记录" :width="dialogWidth">
+      <el-form :model="editingTimeRecord" label-width="80px">
+        <el-form-item label="日期">
+          <el-input v-model="editingTimeRecord.date" disabled />
+        </el-form-item>
+        <el-form-item label="开始时间">
+          <el-time-picker
+            v-model="editingTimeRecord.startTime"
+            placeholder="选择开始时间"
+            format="HH:mm:ss"
+            value-format="x"
+            style="width: 100%"
+            :editable="false"
+          />
+        </el-form-item>
+        <el-form-item label="结束时间">
+          <el-time-picker
+            v-model="editingTimeRecord.endTime"
+            placeholder="选择结束时间"
+            format="HH:mm:ss"
+            value-format="x"
+            style="width: 100%"
+            :editable="false"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="showTimeEditDialog = false">取消</el-button>
+          <el-button type="primary" @click="preSaveTimeRecord">保存</el-button>
+        </span>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="showConfirmEditDialog" title="确认修改" :width="dialogWidth">
+      <div style="padding: 10px;">
+        <p>确认将时间记录修改为：</p>
+        <p>开始时间: {{ confirmEditData.startTime.split(' ')[0] }} <strong>{{ confirmEditData.startTime.split(' ')[1] }}</strong></p>
+        <p>结束时间: {{ confirmEditData.endTime.split(' ')[0] }} <strong>{{ confirmEditData.endTime.split(' ')[1] }}</strong></p>
+      </div>
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="showConfirmEditDialog = false">取消</el-button>
+          <el-button type="primary" @click="confirmSaveTimeRecord">确认修改</el-button>
         </span>
       </template>
     </el-dialog>
@@ -240,6 +327,7 @@ import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
 import { Delete, Edit } from '@element-plus/icons-vue'
 import draggable from 'vuedraggable'
+import dayjs from 'dayjs'
 import IdiomList from './IdiomList.vue'
 import { API_BASE_URL } from '../config'
 
@@ -266,6 +354,17 @@ const lineDateRange = ref([
   new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
   new Date().toISOString().split('T')[0]
 ])
+
+const handleDateRangeChange = () => {
+  if (lineDateRange.value[0] > lineDateRange.value[1]) {
+    const temp = lineDateRange.value[0]
+    lineDateRange.value[0] = lineDateRange.value[1]
+    lineDateRange.value[1] = temp
+  }
+  fetchLineData()
+  fetchRankings()
+}
+
 const currentTaskDuration = ref('00:00:00')
 
 const pieChartRef = ref(null)
@@ -280,7 +379,15 @@ let syncTimer = null
 const API_URL = `${API_BASE_URL}/tasks`
 const AUTH_API_URL = `${API_BASE_URL}/auth`
 
+const dialogWidth = ref('30%')
+
+const updateDialogWidth = () => {
+  dialogWidth.value = window.innerWidth <= 768 ? '90%' : '30%'
+}
+
 onMounted(async () => {
+  updateDialogWidth()
+  window.addEventListener('resize', updateDialogWidth)
   await fetchTasks()
   await fetchCheckInStatus()
   
@@ -310,6 +417,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  window.removeEventListener('resize', updateDialogWidth)
   window.removeEventListener('resize', handleResize)
   if (timer) clearInterval(timer)
   if (syncTimer) clearInterval(syncTimer)
@@ -350,6 +458,11 @@ const syncUserStatus = async () => {
 }
 
 const updateTimer = () => {
+  const now = new Date();
+  const hour = now.getHours();
+  // Show settle button if hour >= 23 or hour < 4
+  showSettleButton.value = (hour >= 23 || hour < 4) && currentTask.value !== null;
+
   if (props.user.currentTaskId && props.user.currentTaskStartTime) {
     const diff = Date.now() - props.user.currentTaskStartTime
     if (diff >= 0) {
@@ -361,6 +474,25 @@ const updateTimer = () => {
     }
   } else {
     currentTaskDuration.value = '00:00:00'
+  }
+}
+
+const showSettleButton = ref(false)
+
+const settleDailyTask = async () => {
+  try {
+    await axios.post(`${API_URL}/settle`, {
+      userId: props.user.id
+    })
+    ElMessage.success('当日任务已结算')
+    // Force sync to update UI
+    await syncUserStatus()
+    // Refresh charts
+    fetchPieData()
+    fetchLineData()
+    fetchTimelineData()
+  } catch (error) {
+    ElMessage.error('结束失败: ' + (error.response?.data?.message || error.message))
   }
 }
 
@@ -508,7 +640,8 @@ const fetchPieData = async () => {
     }
 
     // Adjust chart position on mobile to make room for multi-line legend at bottom
-    const seriesCenter = isMobile ? ['50%', '35%'] : ['50%', '50%']
+    const seriesCenter = isMobile ? ['50%', '40%'] : ['50%', '50%']
+    const seriesRadius = isMobile ? '35%' : '50%'
 
     const option = {
        tooltip: { 
@@ -524,9 +657,10 @@ const fetchPieData = async () => {
          {
            name: '任务时长',
            type: 'pie',
-           radius: '50%',
+           radius: seriesRadius,
            center: seriesCenter,
            startAngle: 90, // Start from 12 o'clock
+           avoidLabelOverlap: true,
            data: res.data.data.map(item => ({
              ...item,
              itemStyle: { color: getColorForTask(item.name) }
@@ -604,6 +738,12 @@ const fetchLineData = async () => {
   }
 }
 
+const timelineStats = ref({
+  morning: 0,
+  afternoon: 0,
+  evening: 0
+})
+
 const fetchTimelineData = async () => {
   try {
     const res = await axios.get(`${API_URL}/timeline`, {
@@ -611,6 +751,48 @@ const fetchTimelineData = async () => {
     })
     
     const data = res.data
+    
+    // Calculate Morning/Afternoon/Evening stats
+    const baseDate = dayjs(pieDate.value)
+    // Morning: 04:00 - 13:00
+    const morningStart = baseDate.hour(4).minute(0).second(0).millisecond(0).valueOf()
+    const morningEnd = baseDate.hour(13).minute(0).second(0).millisecond(0).valueOf()
+    
+    // Afternoon: 13:00 - 18:00
+    const afternoonStart = morningEnd
+    const afternoonEnd = baseDate.hour(18).minute(0).second(0).millisecond(0).valueOf()
+    
+    // Evening: 18:00 - 04:00 (next day)
+    const eveningStart = afternoonEnd
+    const eveningEnd = baseDate.add(1, 'day').hour(4).minute(0).second(0).millisecond(0).valueOf()
+    
+    let m = 0, a = 0, e = 0
+    
+    if (data && data.length > 0) {
+      data.forEach(item => {
+        // Only count tasks with recordsTag = true (or equivalent logic from backend)
+        if (!item.recordsTag) return
+
+        const start = item.startTime
+        const end = item.endTime
+        
+        // Overlap with Morning
+        m += Math.max(0, Math.min(end, morningEnd) - Math.max(start, morningStart))
+        
+        // Overlap with Afternoon
+        a += Math.max(0, Math.min(end, afternoonEnd) - Math.max(start, afternoonStart))
+        
+        // Overlap with Evening
+        e += Math.max(0, Math.min(end, eveningEnd) - Math.max(start, eveningStart))
+      })
+    }
+    
+    timelineStats.value = {
+      morning: m,
+      afternoon: a,
+      evening: e
+    }
+
     if (!data || data.length === 0) {
       timelineChart.clear()
       return
@@ -626,7 +808,8 @@ const fetchTimelineData = async () => {
           0, // Category index
           item.startTime,
           item.endTime,
-          item.duration
+          item.duration,
+          item.id // Index 4
         ],
         itemStyle: {
           color: getColorForTask(item.taskName)
@@ -731,8 +914,159 @@ const fetchTimelineData = async () => {
     };
     
     timelineChart.setOption(option);
+    
+    // Long press logic (200ms)
+    let pressTimer = null;
+    
+    timelineChart.off('click');
+    timelineChart.off('mousedown');
+    timelineChart.off('mouseup');
+    timelineChart.off('mouseout');
+
+    timelineChart.on('mousedown', (params) => {
+      if (props.user.canEditTime && params.data && params.data.value && params.data.value[4] !== 'CURRENT') {
+        pressTimer = setTimeout(() => {
+          // Hide tooltip to prevent overlap
+          timelineChart.dispatchAction({
+            type: 'hideTip'
+          });
+          openTimeEditDialog(params.data);
+          pressTimer = null;
+        }, 200);
+      }
+    });
+
+    const cancelPress = () => {
+      if (pressTimer) {
+        clearTimeout(pressTimer);
+        pressTimer = null;
+      }
+    };
+
+    timelineChart.on('mouseup', cancelPress);
+    timelineChart.on('mouseout', cancelPress);
   } catch (error) {
     console.error(error)
+  }
+}
+
+const showTimeEditDialog = ref(false)
+const showConfirmEditDialog = ref(false)
+const editingTimeRecord = ref({ id: null, startTime: null, endTime: null, date: '' })
+const confirmEditData = ref({ startTime: '', endTime: '', rawStartTime: 0, rawEndTime: 0 })
+
+const openTimeEditDialog = (data) => {
+  const start = data.value[1]
+  const end = data.value[2]
+  const dateStr = dayjs(start).format('YYYY-MM-DD')
+  
+  editingTimeRecord.value = {
+    id: data.value[4],
+    startTime: start, // timestamp
+    endTime: end,   // timestamp
+    date: dateStr,
+    originalStartTime: start,
+    originalEndTime: end
+  }
+  showTimeEditDialog.value = true
+}
+
+const preSaveTimeRecord = () => {
+  // Calculate new timestamps based on the selected time and original date
+  // Note: editingTimeRecord.startTime/endTime are bound to el-time-picker which returns Date object or timestamp depending on config
+  // But here we use value-format="x" (timestamp) in the template for time-picker too?
+  // Let's check the template update. I will use value-format="x" for time-picker to keep it simple.
+  // However, time-picker with value-format="x" returns timestamp relative to 1970-01-01 usually? 
+  // No, Element Plus time-picker with value-format="x" returns timestamp.
+  // But wait, if I use time-picker, I want to preserve the date of the record.
+  // If I use el-time-picker, it picks a time.
+  
+  // Better approach:
+  // In openTimeEditDialog, I have full timestamps.
+  // In the template, I will use el-time-picker bound to these timestamps.
+  // When user changes time, the timestamp updates.
+  // BUT el-time-picker might change the date part to today or 1970 if not careful?
+  // Actually, if I bind a timestamp to el-time-picker, it converts to Date.
+  // When it emits update, it emits a Date (or formatted string).
+  // If I use value-format="x", it emits a timestamp.
+  // Does it preserve the original date?
+  // Usually el-time-picker operates on the time part of the provided date.
+  // Let's assume it does. If not, we fix it.
+  
+  // Actually, to be safe, let's reconstruct the timestamp using the original date and the new time components.
+  const originalDate = dayjs(editingTimeRecord.value.date)
+  const newStart = dayjs(editingTimeRecord.value.startTime)
+  const newEnd = dayjs(editingTimeRecord.value.endTime)
+  
+  // Combine original date with new time
+  const finalStart = originalDate
+    .hour(newStart.hour())
+    .minute(newStart.minute())
+    .second(newStart.second())
+    .millisecond(0) // Reset ms to 0 for cleanliness
+    .valueOf()
+    
+  // For end time, handle potential day crossing if needed?
+  // The user said "cannot modify date".
+  // If the original record was 23:00 - 01:00 (+1 day), the date displayed is likely the start date.
+  // If user changes 01:00 to 02:00, it should probably still be +1 day?
+  // But "cannot modify date" is strict.
+  // If I force the date to be `originalDate`, then 01:00 becomes 01:00 on the start day (which is before start time).
+  // This is tricky.
+  // Let's assume for now we just take the time and apply it to the date of the *original timestamp*.
+  // So if start was Day 1, we apply new time to Day 1.
+  // If end was Day 2, we apply new time to Day 2.
+  
+  // So we need to keep track of the original full timestamps to know which "Day" they belong to.
+  // But `editingTimeRecord.startTime` is being mutated by the picker.
+  // I should store `originalStartTime` and `originalEndTime` in `openTimeEditDialog`.
+  
+  // Let's update `openTimeEditDialog` to store original timestamps separately if needed.
+  // Actually, `editingTimeRecord` is reactive.
+  // If I bind `v-model` to it, it changes.
+  // So I can't know the original date from `editingTimeRecord.startTime` if the picker changed it (e.g. to 1970).
+  
+  // Let's rely on the fact that I will use `el-time-picker` without `value-format` (so it uses Date object)
+  // OR use `value-format` but ensure I handle the date.
+  
+  // Let's try this:
+  // 1. `openTimeEditDialog` saves `originalStartDay` and `originalEndDay` (YYYY-MM-DD strings).
+  // 2. `preSaveTimeRecord` takes the time from the picker's value and combines with `originalStartDay`/`originalEndDay`.
+  
+  const startDay = dayjs(editingTimeRecord.value.originalStartTime).format('YYYY-MM-DD')
+  const endDay = dayjs(editingTimeRecord.value.originalEndTime).format('YYYY-MM-DD')
+  
+  const sTime = dayjs(editingTimeRecord.value.startTime)
+  const eTime = dayjs(editingTimeRecord.value.endTime)
+  
+  const finalStartTs = dayjs(startDay + ' ' + sTime.format('HH:mm:ss')).valueOf()
+  const finalEndTs = dayjs(endDay + ' ' + eTime.format('HH:mm:ss')).valueOf()
+  
+  confirmEditData.value = {
+    startTime: dayjs(finalStartTs).format('YYYY-MM-DD HH:mm:ss'),
+    endTime: dayjs(finalEndTs).format('YYYY-MM-DD HH:mm:ss'),
+    rawStartTime: finalStartTs,
+    rawEndTime: finalEndTs
+  }
+  
+  showConfirmEditDialog.value = true
+}
+
+const confirmSaveTimeRecord = async () => {
+  try {
+    await axios.put(`${API_URL}/records/${editingTimeRecord.value.id}`, {
+      userId: props.user.id,
+      startTime: confirmEditData.value.rawStartTime,
+      endTime: confirmEditData.value.rawEndTime
+    })
+    showConfirmEditDialog.value = false
+    showTimeEditDialog.value = false
+    ElMessage.success('时间记录已更新')
+    fetchTimelineData()
+    fetchLineData()
+    fetchPieData()
+  } catch (error) {
+    ElMessage.error('更新失败: ' + (error.response?.data?.message || error.message))
   }
 }
 
@@ -741,7 +1075,11 @@ const rankingStats = ref(null)
 const fetchRankings = async () => {
   try {
     const res = await axios.get(`${API_URL}/stats/rankings`, {
-      params: { userId: props.user.id }
+      params: { 
+        userId: props.user.id,
+        startDate: lineDateRange.value ? lineDateRange.value[0] : null,
+        endDate: lineDateRange.value ? lineDateRange.value[1] : null
+      }
     })
     rankingStats.value = res.data
   } catch (error) {
@@ -979,5 +1317,76 @@ const updateGoal = async () => {
   font-size: 14px;
   color: #C0C4CC;
   font-weight: normal;
+}
+
+.timeline-stats {
+  display: flex;
+  justify-content: space-around;
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 1px solid #ebeef5;
+}
+
+.timeline-stats .stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.timeline-stats .label {
+  font-size: 12px;
+  color: #909399;
+  margin-bottom: 4px;
+}
+
+.timeline-stats .value {
+  font-size: 16px;
+  font-weight: bold;
+  color: #303133;
+}
+
+.date-range-container {
+  display: flex;
+  align-items: center;
+}
+.compact-date-picker {
+  width: 135px !important;
+}
+.range-separator {
+  margin: 0 5px;
+}
+@media (max-width: 768px) {
+  /* Trend Header Specific Styles */
+  .trend-header {
+    display: flex;
+    align-items: center; /* Vertically center the title */
+  }
+  .trend-header .date-range-container {
+    display: flex;
+    flex-direction: column; /* Stack dates vertically */
+    align-items: center;
+    margin-left: auto; /* Push to right */
+  }
+  .trend-header .compact-date-picker {
+    width: 140px !important; /* Wider width for stacked items */
+  }
+  .trend-header .range-separator {
+    margin: 2px 0;
+  }
+
+  /* General Mobile Adjustments */
+  .compact-date-picker {
+    width: 130px !important; /* Default width for single line (Statistics) */
+  }
+  
+  /* Restore input styles but keep them slightly compact */
+  :deep(.el-input__wrapper) {
+    padding-left: 8px !important;
+    padding-right: 8px !important;
+  }
+  :deep(.el-input__inner) {
+    text-align: center;
+    padding: 0 !important;
+  }
 }
 </style>

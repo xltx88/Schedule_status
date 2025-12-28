@@ -25,4 +25,11 @@ public interface TimeRecordRepository extends JpaRepository<TimeRecord, Long> {
                    "WHERE tr.user_id = :userId " +
                    "AND (t.records_tag = 1 OR (t.records_tag IS NULL AND t.user_id IS NOT NULL))", nativeQuery = true)
     Long getTotalDurationByUserId(@Param("userId") Long userId);
+
+    @Query(value = "SELECT SUM(tr.duration) FROM time_records tr " +
+                   "JOIN tasks t ON tr.task_id = t.id " +
+                   "WHERE tr.user_id = :userId " +
+                   "AND tr.record_date BETWEEN :startDate AND :endDate " +
+                   "AND (t.records_tag = 1 OR (t.records_tag IS NULL AND t.user_id IS NOT NULL))", nativeQuery = true)
+    Long getTotalDurationByUserIdAndDateRange(@Param("userId") Long userId, @Param("startDate") String startDate, @Param("endDate") String endDate);
 }

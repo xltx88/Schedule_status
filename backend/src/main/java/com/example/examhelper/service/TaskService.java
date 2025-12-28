@@ -16,6 +16,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -209,41 +210,60 @@ public class TaskService {
         }
     }
 
-    // 24:00 (Midnight) Schedule
-    @Scheduled(cron = "0 0 0 * * ?")
+    // 24:00 (Midnight) Schedule -> Changed to 04:00 AM
+    @Scheduled(cron = "0 0 4 * * ?")
     @Transactional
     public void settleDailyTasks() {
-        log.info("Running Midnight Settlement");
+        log.info("Running 4 AM Settlement");
         List<User> users = userRepository.findAll();
         long now = System.currentTimeMillis();
 
         for (User user : users) {
-            if (user.getCurrentTaskId() != null && user.getCurrentTaskStartTime() != null) {
-                // Calculate duration
-                long startTime = user.getCurrentTaskStartTime();
-                long duration = now - startTime;
+            settleUserTask(user, now);
+        }
+    }
 
-                // Use the start time to determine the record date to avoid issues with cron firing slightly off midnight
-                String recordDate = Instant.ofEpochMilli(startTime)
-                        .atZone(ZoneId.systemDefault())
-                        .toLocalDate()
-                        .format(DATE_FORMATTER);
+    @Transactional
+    public void settleUserDailyTask(Long userId) {
+        User user = userRepository.findById(userId).orElseThrow(() -> new RuntimeException("User not found"));
+        
+        // Validate time: Must be after 23:00
+        LocalTime time = LocalTime.now();
+        if (time.getHour() < 23 && time.getHour() >= 4) {
+             throw new RuntimeException("未到23:00");
+        }
+        
+        settleUserTask(user, System.currentTimeMillis());
+    }
 
-                TimeRecord record = new TimeRecord();
-                record.setUserId(user.getId());
-                record.setTaskId(user.getCurrentTaskId());
-                record.setStartTime(startTime);
-                record.setEndTime(now);
-                record.setDuration(duration);
-                record.setRecordDate(recordDate);
-                record.setCreatedAt(LocalDateTime.now());
-                timeRecordRepository.save(record);
+    private void settleUserTask(User user, long now) {
+        if (user.getCurrentTaskId() != null && user.getCurrentTaskStartTime() != null) {
+            // Calculate duration
+            long startTime = user.getCurrentTaskStartTime();
+            long duration = now - startTime;
 
-                // Clear user status
-                user.setCurrentTaskId(null);
-                user.setCurrentTaskStartTime(null);
-                userRepository.save(user);
+            // Use the start time to determine the record date
+            // With 4 AM settlement, tasks starting before 4 AM belong to the previous logical day
+            ZonedDateTime zdt = Instant.ofEpochMilli(startTime).atZone(ZoneId.systemDefault());
+            if (zdt.getHour() < 4) {
+                zdt = zdt.minusDays(1);
             }
+            String recordDate = zdt.toLocalDate().format(DATE_FORMATTER);
+
+            TimeRecord record = new TimeRecord();
+            record.setUserId(user.getId());
+            record.setTaskId(user.getCurrentTaskId());
+            record.setStartTime(startTime);
+            record.setEndTime(now);
+            record.setDuration(duration);
+            record.setRecordDate(recordDate);
+            record.setCreatedAt(LocalDateTime.now());
+            timeRecordRepository.save(record);
+
+            // Clear user status
+            user.setCurrentTaskId(null);
+            user.setCurrentTaskStartTime(null);
+            userRepository.save(user);
         }
     }
 
@@ -321,16 +341,23 @@ public class TaskService {
         List<Task> allTasks = taskRepository.findAll();
         Map<Long, String> taskNames = allTasks.stream().collect(Collectors.toMap(Task::getId, Task::getName));
         Map<Long, Long> taskUserIds = allTasks.stream().collect(Collectors.toMap(Task::getId, t -> t.getUserId() == null ? 0L : t.getUserId()));
+        Map<Long, Boolean> taskRecordsTags = allTasks.stream().collect(Collectors.toMap(Task::getId, t -> {
+            if (Boolean.TRUE.equals(t.getRecordsTag())) return true;
+            if (t.getRecordsTag() == null && t.getUserId() != null) return true;
+            return false;
+        }));
 
         List<Map<String, Object>> timeline = new ArrayList<>();
         
         for (TimeRecord record : records) {
             Map<String, Object> item = new HashMap<>();
+            item.put("id", record.getId());
             item.put("taskName", taskNames.getOrDefault(record.getTaskId(), "Unknown"));
             item.put("startTime", record.getStartTime());
             item.put("endTime", record.getEndTime());
             item.put("duration", record.getDuration());
             item.put("isSystem", taskUserIds.get(record.getTaskId()) == 0L);
+            item.put("recordsTag", taskRecordsTags.getOrDefault(record.getTaskId(), false));
             timeline.add(item);
         }
 
@@ -339,11 +366,13 @@ public class TaskService {
             User user = userRepository.findById(userId).orElse(null);
             if (user != null && user.getCurrentTaskId() != null && user.getCurrentTaskStartTime() != null) {
                 Map<String, Object> item = new HashMap<>();
+                item.put("id", "CURRENT");
                 item.put("taskName", taskNames.getOrDefault(user.getCurrentTaskId(), "Unknown"));
                 item.put("startTime", user.getCurrentTaskStartTime());
                 item.put("endTime", System.currentTimeMillis());
                 item.put("duration", System.currentTimeMillis() - user.getCurrentTaskStartTime());
                 item.put("isSystem", taskUserIds.get(user.getCurrentTaskId()) == 0L);
+                item.put("recordsTag", taskRecordsTags.getOrDefault(user.getCurrentTaskId(), false));
                 timeline.add(item);
             }
         }
@@ -386,12 +415,48 @@ public class TaskService {
         taskRepository.save(task);
     }
 
-    public Map<String, Object> getRankingStats(Long userId) {
+    public Map<String, Object> getRankingStats(Long userId, String startDate, String endDate) {
         Map<String, Object> result = new HashMap<>();
         
         // 1. Today's Ranking
+        // Logic: Ranking is based on "record_date". Since we changed settlement to 4 AM,
+        // records generated between yesterday 4 AM and today 4 AM are considered "yesterday" (or previous day)
+        // BUT, our TimeRecord has a "recordDate" field which is set at the time of creation/settlement.
+        // If we settle at 4 AM, the recordDate should logically belong to the "previous day" if it represents the previous day's work.
+        // However, the current implementation sets recordDate based on startTime.
+        // "String recordDate = Instant.ofEpochMilli(startTime)...toLocalDate().format..."
+        // So if a task started at 23:00 yesterday and ended at 4:00 today, startTime is yesterday, so recordDate is yesterday.
+        // This is consistent with "Daily" stats.
+        
+        // So "Today's Ranking" means ranking for the current logical day.
+        // If it's 2 AM now, we are still in "Yesterday" logically until 4 AM settlement?
+        // The user requirement says "Yesterday's ranking... should follow settlement time".
+        // Actually, since we store recordDate based on StartTime, the date is already "correct" for most tasks.
+        // The only ambiguity is tasks starting after 00:00 but before 04:00.
+        // If I start a task at 01:00 AM, it belongs to "Yesterday" logically if settlement is 4 AM.
+        // But currently Instant.ofEpochMilli(startTime) will give Today's date.
+        
+        // To fix this properly, we should adjust how recordDate is calculated in settleUserTask/settleDailyTasks.
+        // But for now, let's assume recordDate in DB is the source of truth for "Day".
+        
+        // Wait, the user asked to check if yesterday's ranking is correct with new settlement time.
+        // If we just query by record_date, we rely on how record_date was saved.
+        // Let's look at settleUserTask again.
+        
         String today = LocalDate.now().format(DATE_FORMATTER);
-        List<Object[]> todayStats = timeRecordRepository.findUserDurationsByDate(today);
+        // If current time < 4 AM, "Today" for display might actually be "Yesterday" in calendar?
+        // Or does the user mean "Current active day"?
+        // Usually "Today" means the date of the day we are working on.
+        // If I work at 1 AM on Dec 28, it's still Dec 27's work session until 4 AM Dec 28.
+        // So we should shift the date if LocalTime.now().getHour() < 4.
+        
+        LocalDate logicalToday = LocalDate.now();
+        if (LocalTime.now().getHour() < 4) {
+            logicalToday = logicalToday.minusDays(1);
+        }
+        String logicalTodayStr = logicalToday.format(DATE_FORMATTER);
+        
+        List<Object[]> todayStats = timeRecordRepository.findUserDurationsByDate(logicalTodayStr);
         long totalUsers = userRepository.count();
         
         int myRank = -1;
@@ -406,27 +471,31 @@ public class TaskService {
         if (myRank != -1) {
             result.put("todayRank", myRank + "/" + totalUsers);
         } else {
-            // If not in list (no duration today), rank is effectively after the last ranked user or just "-"
-            // Let's show "-" for now or maybe "N/A"
             result.put("todayRank", "-/" + totalUsers);
         }
 
-        // 2. Cumulative Duration
-        Long totalDuration = timeRecordRepository.getTotalDurationByUserId(userId);
+        // 2. Cumulative Duration (Range based)
+        // If startDate/endDate provided, use them. Else total.
+        Long totalDuration;
+        if (startDate != null && endDate != null) {
+             totalDuration = timeRecordRepository.getTotalDurationByUserIdAndDateRange(userId, startDate, endDate);
+        } else {
+             totalDuration = timeRecordRepository.getTotalDurationByUserId(userId);
+        }
+        
         if (totalDuration == null) totalDuration = 0L;
         result.put("totalDuration", formatDuration(totalDuration));
 
         // 3. Yesterday's Top 3
-        String yesterday = LocalDate.now().minusDays(1).format(DATE_FORMATTER);
-        List<Object[]> yesterdayStats = timeRecordRepository.findUserDurationsByDate(yesterday);
+        // Yesterday relative to logicalToday
+        String logicalYesterdayStr = logicalToday.minusDays(1).format(DATE_FORMATTER);
+        List<Object[]> yesterdayStats = timeRecordRepository.findUserDurationsByDate(logicalYesterdayStr);
         
         List<Map<String, Object>> top3 = new ArrayList<>();
         int limit = Math.min(yesterdayStats.size(), 3);
         
         for (int i = 0; i < limit; i++) {
             Long uid = ((Number) yesterdayStats.get(i)[0]).longValue();
-            // Fetch username
-            // Optimization: Could cache users or fetch all needed users in one query
             User u = userRepository.findById(uid).orElse(null);
             String name = (u != null) ? u.getUsername() : "Unknown";
             
@@ -450,5 +519,80 @@ public class TaskService {
         } else {
             return String.format("%d分%d秒", minutes, seconds % 60);
         }
+    }
+
+    @Transactional
+    public void updateTimeRecord(Long userId, Long recordId, Long newStartTime, Long newEndTime) {
+        User user = userRepository.findById(userId).orElseThrow(() -> new RuntimeException("User not found"));
+        if (!Boolean.TRUE.equals(user.getCanEditTime())) {
+            throw new RuntimeException("Permission denied: Cannot edit time records");
+        }
+
+        TimeRecord record = timeRecordRepository.findById(recordId).orElseThrow(() -> new RuntimeException("Record not found"));
+        if (!record.getUserId().equals(userId)) {
+            throw new RuntimeException("Permission denied: Record does not belong to user");
+        }
+
+        if (newStartTime >= newEndTime) {
+            throw new RuntimeException("Start time must be before end time");
+        }
+
+        long oldStartTime = record.getStartTime();
+        long oldEndTime = record.getEndTime();
+        String recordDate = record.getRecordDate();
+
+        record.setStartTime(newStartTime);
+        record.setEndTime(newEndTime);
+        record.setDuration(newEndTime - newStartTime);
+        
+        // Update recordDate based on newStartTime (Logical Day)
+        ZonedDateTime zdt = Instant.ofEpochMilli(newStartTime).atZone(ZoneId.systemDefault());
+        if (zdt.getHour() < 4) {
+            zdt = zdt.minusDays(1);
+        }
+        record.setRecordDate(zdt.toLocalDate().format(DATE_FORMATTER));
+        
+        timeRecordRepository.save(record);
+
+        List<TimeRecord> dayRecords = timeRecordRepository.findByUserIdAndRecordDate(userId, recordDate);
+        
+        if (newEndTime != oldEndTime) {
+            for (TimeRecord r : dayRecords) {
+                if (r.getId().equals(record.getId())) continue;
+                if (Math.abs(r.getStartTime() - oldEndTime) < 5000) {
+                    r.setStartTime(newEndTime);
+                    r.setDuration(r.getEndTime() - r.getStartTime());
+                    timeRecordRepository.save(r);
+                }
+            }
+            if (user.getCurrentTaskId() != null && user.getCurrentTaskStartTime() != null) {
+                 if (Math.abs(user.getCurrentTaskStartTime() - oldEndTime) < 5000) {
+                     user.setCurrentTaskStartTime(newEndTime);
+                     userRepository.save(user);
+                 }
+            }
+        }
+
+        if (newStartTime != oldStartTime) {
+             for (TimeRecord r : dayRecords) {
+                if (r.getId().equals(record.getId())) continue;
+                if (Math.abs(r.getEndTime() - oldStartTime) < 5000) {
+                    r.setEndTime(newStartTime);
+                    r.setDuration(r.getEndTime() - r.getStartTime());
+                    timeRecordRepository.save(r);
+                }
+            }
+        }
+    }
+
+    public void grantTimeEditPermission(Long adminId, Long targetUserId, Boolean canEdit) {
+        User admin = userRepository.findById(adminId).orElseThrow(() -> new RuntimeException("Admin not found"));
+        if (!"ADMIN".equals(admin.getRole())) {
+             throw new RuntimeException("Permission denied: Not an admin");
+        }
+        
+        User target = userRepository.findById(targetUserId).orElseThrow(() -> new RuntimeException("User not found"));
+        target.setCanEditTime(canEdit);
+        userRepository.save(target);
     }
 }

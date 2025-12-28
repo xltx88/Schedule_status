@@ -56,8 +56,11 @@ public class TaskController {
     }
 
     @GetMapping("/stats/rankings")
-    public ResponseEntity<Map<String, Object>> getRankings(@RequestParam Long userId) {
-        return ResponseEntity.ok(taskService.getRankingStats(userId));
+    public ResponseEntity<Map<String, Object>> getRankings(
+            @RequestParam Long userId,
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate) {
+        return ResponseEntity.ok(taskService.getRankingStats(userId, startDate, endDate));
     }
 
     @GetMapping("/timeline")
@@ -83,6 +86,24 @@ public class TaskController {
         return ResponseEntity.ok().build();
     }
 
+    @PutMapping("/records/{recordId}")
+    public ResponseEntity<?> updateTimeRecord(@PathVariable Long recordId, @RequestBody UpdateTimeRecordRequest request) {
+        taskService.updateTimeRecord(request.getUserId(), recordId, request.getStartTime(), request.getEndTime());
+        return ResponseEntity.ok().build();
+    }
+
+    @PostMapping("/admin/grant-edit")
+    public ResponseEntity<?> grantTimeEditPermission(@RequestBody GrantPermissionRequest request) {
+        taskService.grantTimeEditPermission(request.getAdminId(), request.getTargetUserId(), request.getCanEdit());
+        return ResponseEntity.ok().build();
+    }
+
+    @PostMapping("/settle")
+    public ResponseEntity<?> settleDailyTask(@RequestBody SettleTaskRequest request) {
+        taskService.settleUserDailyTask(request.getUserId());
+        return ResponseEntity.ok().build();
+    }
+
     @Data
     public static class AddTaskRequest {
         private String name;
@@ -104,5 +125,24 @@ public class TaskController {
     @Data
     public static class UpdateRecordsTagRequest {
         private Boolean recordsTag;
+    }
+
+    @Data
+    public static class UpdateTimeRecordRequest {
+        private Long userId;
+        private Long startTime;
+        private Long endTime;
+    }
+
+    @Data
+    public static class GrantPermissionRequest {
+        private Long adminId;
+        private Long targetUserId;
+        private Boolean canEdit;
+    }
+
+    @Data
+    public static class SettleTaskRequest {
+        private Long userId;
     }
 }
