@@ -13,9 +13,18 @@ public class UserService {
     private final UserRepository userRepository;
 
     public User login(String username, String password) {
-        return userRepository.findByUsername(username)
+        User user = userRepository.findByUsername(username)
                 .filter(u -> u.getPassword().equals(password))
                 .orElse(null);
+        if (user != null) {
+            user.setToken(java.util.UUID.randomUUID().toString());
+            return userRepository.save(user);
+        }
+        return null;
+    }
+
+    public User getUserByToken(String token) {
+        return userRepository.findByToken(token).orElse(null);
     }
 
     public User register(String username, String password) {

@@ -35,6 +35,10 @@ public class AuthController {
 
     @GetMapping("/user/{id}")
     public ResponseEntity<?> getUser(@PathVariable Long id) {
+        User currentUser = com.example.examhelper.config.UserContext.getCurrentUser();
+        if (!currentUser.getId().equals(id)) {
+            return ResponseEntity.status(403).body("Unauthorized access to user data");
+        }
         User user = userService.getUserById(id);
         if (user != null) {
             return ResponseEntity.ok(user);
@@ -44,6 +48,10 @@ public class AuthController {
 
     @PostMapping("/user/{id}/goal")
     public ResponseEntity<?> updateGoal(@PathVariable Long id, @RequestBody Map<String, Integer> body) {
+        User currentUser = com.example.examhelper.config.UserContext.getCurrentUser();
+        if (!currentUser.getId().equals(id)) {
+            return ResponseEntity.status(403).body("Unauthorized access to user data");
+        }
         return ResponseEntity.ok(userService.updateDailyGoal(id, body.get("goal")));
     }
 

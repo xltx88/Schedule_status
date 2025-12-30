@@ -166,10 +166,21 @@ public class TaskService {
         record.setStartTime(startTime);
         record.setEndTime(endTime);
         record.setDuration(duration);
-        record.setRecordDate(LocalDate.now().format(DATE_FORMATTER));
+        
+        // Use logical date (4 AM rule)
+        record.setRecordDate(getLogicalDate(startTime));
+        
         record.setCreatedAt(LocalDateTime.now());
         
         timeRecordRepository.save(record);
+    }
+
+    private String getLogicalDate(long timestamp) {
+        ZonedDateTime zdt = Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault());
+        if (zdt.getHour() < 4) {
+            zdt = zdt.minusDays(1);
+        }
+        return zdt.toLocalDate().format(DATE_FORMATTER);
     }
 
     // 8:00 AM Schedule
@@ -244,11 +255,7 @@ public class TaskService {
 
             // Use the start time to determine the record date
             // With 4 AM settlement, tasks starting before 4 AM belong to the previous logical day
-            ZonedDateTime zdt = Instant.ofEpochMilli(startTime).atZone(ZoneId.systemDefault());
-            if (zdt.getHour() < 4) {
-                zdt = zdt.minusDays(1);
-            }
-            String recordDate = zdt.toLocalDate().format(DATE_FORMATTER);
+            String recordDate = getLogicalDate(startTime);
 
             TimeRecord record = new TimeRecord();
             record.setUserId(user.getId());
@@ -409,8 +416,11 @@ public class TaskService {
         return result;
     }
 
-    public void updateTaskRecordsTag(Long taskId, Boolean recordsTag) {
+    public void updateTaskRecordsTag(Long userId, Long taskId, Boolean recordsTag) {
         Task task = taskRepository.findById(taskId).orElseThrow(() -> new RuntimeException("Task not found"));
+        if (task.getUserId() == null || !task.getUserId().equals(userId)) {
+             throw new RuntimeException("Unauthorized to modify this task");
+        }
         task.setRecordsTag(recordsTag);
         taskRepository.save(task);
     }

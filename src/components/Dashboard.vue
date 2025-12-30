@@ -349,10 +349,25 @@ watch(activeTab, (newVal) => {
 const tasks = ref([])
 const currentTask = ref(null)
 const newTaskName = ref('')
-const pieDate = ref(new Date().toISOString().split('T')[0])
+
+// Helper to get logical date (4 AM rule)
+const getLogicalDate = () => {
+  const now = new Date()
+  if (now.getHours() < 4) {
+    now.setDate(now.getDate() - 1)
+  }
+  return now
+}
+
+const logicalNow = getLogicalDate()
+// Use local time string format to avoid timezone issues with toISOString()
+// toISOString() uses UTC, which might be different day.
+// Better to use dayjs or manual formatting.
+// Since dayjs is imported, let's use it.
+const pieDate = ref(dayjs(logicalNow).format('YYYY-MM-DD'))
 const lineDateRange = ref([
-  new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-  new Date().toISOString().split('T')[0]
+  dayjs(logicalNow).subtract(6, 'day').format('YYYY-MM-DD'),
+  dayjs(logicalNow).format('YYYY-MM-DD')
 ])
 
 const handleDateRangeChange = () => {
