@@ -203,8 +203,9 @@ public class TaskService {
         }
     }
 
-    // Check mandatory task selection every 10 seconds between 8:00 and 24:00
-    @Scheduled(cron = "*/10 * 8-23 * * ?")
+    // Check mandatory task selection every 10 seconds between 8:00 and 23:00 (stops at 23:00)
+    // Modified to 8-22 to avoid conflict with manual settlement after 23:00
+    @Scheduled(cron = "*/10 * 8-22 * * ?")
     @Transactional
     public void checkMandatoryTask() {
         List<User> users = userRepository.findAll();

@@ -130,6 +130,21 @@
               <template #header>
                 <div class="card-header">
                   <span>今日时间轴</span>
+                  <div class="date-control-container">
+                    <el-button :icon="ArrowLeft" circle size="small" @click="changeDate('timeline', -1)" />
+                    <el-date-picker
+                      v-model="timelineDate"
+                      type="date"
+                      placeholder="选择日期"
+                      format="YYYY-MM-DD"
+                      value-format="YYYY-MM-DD"
+                      @change="fetchTimelineData"
+                      :clearable="false"
+                      :editable="false"
+                      class="compact-date-picker"
+                    />
+                    <el-button :icon="ArrowRight" circle size="small" @click="changeDate('timeline', 1)" />
+                  </div>
                 </div>
               </template>
               <div ref="timelineChartRef" style="height: 400px;"></div>
@@ -156,17 +171,21 @@
               <template #header>
                 <div class="card-header">
                   <span>时长统计</span>
-                  <el-date-picker
-                    v-model="pieDate"
-                    type="date"
-                    placeholder="选择日期"
-                    format="YYYY-MM-DD"
-                    value-format="YYYY-MM-DD"
-                    @change="fetchPieData"
-                    :clearable="false"
-                    :editable="false"
-                    class="compact-date-picker"
-                  />
+                  <div class="date-control-container">
+                    <el-button :icon="ArrowLeft" circle size="small" @click="changeDate('pie', -1)" />
+                    <el-date-picker
+                      v-model="pieDate"
+                      type="date"
+                      placeholder="选择日期"
+                      format="YYYY-MM-DD"
+                      value-format="YYYY-MM-DD"
+                      @change="fetchPieData"
+                      :clearable="false"
+                      :editable="false"
+                      class="compact-date-picker"
+                    />
+                    <el-button :icon="ArrowRight" circle size="small" @click="changeDate('pie', 1)" />
+                  </div>
                 </div>
               </template>
               <div ref="pieChartRef" style="height: 350px;"></div>
@@ -325,7 +344,7 @@ import { ref, reactive, onMounted, nextTick, onUnmounted, watch } from 'vue'
 import axios from 'axios'
 import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
-import { Delete, Edit } from '@element-plus/icons-vue'
+import { Delete, Edit, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
 import draggable from 'vuedraggable'
 import dayjs from 'dayjs'
 import IdiomList from './IdiomList.vue'
@@ -365,10 +384,21 @@ const logicalNow = getLogicalDate()
 // Better to use dayjs or manual formatting.
 // Since dayjs is imported, let's use it.
 const pieDate = ref(dayjs(logicalNow).format('YYYY-MM-DD'))
+const timelineDate = ref(dayjs(logicalNow).format('YYYY-MM-DD'))
 const lineDateRange = ref([
   dayjs(logicalNow).subtract(6, 'day').format('YYYY-MM-DD'),
   dayjs(logicalNow).format('YYYY-MM-DD')
 ])
+
+const changeDate = (type, days) => {
+  if (type === 'pie') {
+    pieDate.value = dayjs(pieDate.value).add(days, 'day').format('YYYY-MM-DD')
+    fetchPieData()
+  } else if (type === 'timeline') {
+    timelineDate.value = dayjs(timelineDate.value).add(days, 'day').format('YYYY-MM-DD')
+    fetchTimelineData()
+  }
+}
 
 const handleDateRangeChange = () => {
   if (lineDateRange.value[0] > lineDateRange.value[1]) {
@@ -777,13 +807,13 @@ const timelineStats = ref({
 const fetchTimelineData = async () => {
   try {
     const res = await axios.get(`${API_URL}/timeline`, {
-      params: { userId: props.user.id, date: pieDate.value }
+      params: { userId: props.user.id, date: timelineDate.value }
     })
     
     const data = res.data
     
     // Calculate Morning/Afternoon/Evening stats
-    const baseDate = dayjs(pieDate.value)
+    const baseDate = dayjs(timelineDate.value)
     // Morning: 04:00 - 13:00
     const morningStart = baseDate.hour(4).minute(0).second(0).millisecond(0).valueOf()
     const morningEnd = baseDate.hour(13).minute(0).second(0).millisecond(0).valueOf()
@@ -1394,8 +1424,13 @@ const updateGoal = async () => {
   display: flex;
   align-items: center;
 }
+.date-control-container {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
 .compact-date-picker {
-  width: 135px !important;
+  width: 135px !important; 
 }
 .range-separator {
   margin: 0 5px;
@@ -1413,7 +1448,7 @@ const updateGoal = async () => {
     margin-left: auto; /* Push to right */
   }
   .trend-header .compact-date-picker {
-    width: 140px !important; /* Wider width for stacked items */
+    width: 140px !important; 
   }
   .trend-header .range-separator {
     margin: 2px 0;
@@ -1421,13 +1456,17 @@ const updateGoal = async () => {
 
   /* General Mobile Adjustments */
   .compact-date-picker {
-    width: 130px !important; /* Default width for single line (Statistics) */
+    width: 105px !important; 
+  }
+  
+  .date-control-container {
+    gap: 2px;
   }
   
   /* Restore input styles but keep them slightly compact */
   :deep(.el-input__wrapper) {
-    padding-left: 8px !important;
-    padding-right: 8px !important;
+    padding-left: 2px !important;
+    padding-right: 2px !important;
   }
   :deep(.el-input__inner) {
     text-align: center;

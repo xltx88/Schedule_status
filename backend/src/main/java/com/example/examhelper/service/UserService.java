@@ -17,8 +17,12 @@ public class UserService {
                 .filter(u -> u.getPassword().equals(password))
                 .orElse(null);
         if (user != null) {
-            user.setToken(java.util.UUID.randomUUID().toString());
-            return userRepository.save(user);
+            // Only generate new token if one doesn't exist, to support multi-device/persistent login
+            if (user.getToken() == null) {
+                user.setToken(java.util.UUID.randomUUID().toString());
+                return userRepository.save(user);
+            }
+            return user;
         }
         return null;
     }
